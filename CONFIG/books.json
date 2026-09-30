@@ -1,0 +1,16 @@
+{
+  "books": [
+    {
+      "book_id": "1805566563",
+      "title": "Chair Tai Chi for Weight Loss After 50",
+      "marketplace": "US",
+      "currency": "USD",
+      "price": 19.99,
+      "royalty_per_copy": 8.55,
+      "break_even_acos": 42.77,
+      "target_acos": 35.0,
+      "phase": "PROFIT_STABLE",
+      "active": true
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "_note": "Mapping ESPLICITO header Amazon (EN + IT) -> campo canonico. Header confrontati dopo normalizzazione (minuscolo, solo lettere/cifre). Nessun match approssimato: una colonna non elencata e' un WARNING (resta in raw_json). Aggiungere alias solo dopo verifica su file reali.",
+  "fields": {
+    "start_date":       ["Start Date"],
+    "end_date":         ["End Date"],
+    "portfolio":        ["Portfolio name"],
+    "currency":         ["Currency"],
+    "campaign_name":    ["Campaign Name"],
+    "ad_group":         ["Ad Group Name"],
+    "target":           ["Targeting", "Parola chiave", "Parole chiave", "Categorie e prodotti", "Target per prodotto"],
+    "match_type":       ["Match Type", "Tipo di corrispondenza target"],
+    "search_term":      ["Customer Search Term", "Termine di ricerca del cliente", "Prodotto corrispondente"],
+    "added_as":         ["Added as", "Aggiunto come"],
+    "bid":              ["Bid", "Offerta (USD)", "Offerta per il targeting (USD)"],
+    "impressions":      ["Impressions", "Impressioni"],
+    "clicks":           ["Clicks", "Clic"],
+    "ctr_reported":     ["CTR", "Click-Thru Rate (CTR)"],
+    "cpc_reported":     ["CPC", "CPC (USD)", "Cost Per Click (CPC)"],
+    "spend":            ["Spend", "Costo totale (USD)"],
+    "sales":            ["Sales", "Vendite (USD)", "7 Day Total Sales", "14 Day Total Sales"],
+    "acos_reported":    ["ACOS", "Total Advertising Cost of Sales (ACOS)"],
+    "roas_reported":    ["Total Return on Advertising Spend (ROAS)"],
+    "orders":           ["Orders", "Acquisti", "7 Day Total Orders (#)", "14 Day Total Orders (#)"],
+    "units":            ["7 Day Total Units (#)", "14 Day Total Units (#)"],
+    "conv_rate_reported": ["7 Day Conversion Rate", "14 Day Conversion Rate"]
+  },
+  "required": {
+    "TARGETING":   ["clicks", "spend", "orders", "sales"],
+    "SEARCH_TERM": ["clicks", "spend", "orders", "sales"]
+  },
+  "ratio_fields_are_fractions": ["ctr_reported", "acos_reported", "conv_rate_reported"],
+  "informational_columns": {
+    "_note": "Colonne note ma NON usate nei calcoli: non generano warning. 'Stato' compare due volte nei Target report (rinominate Stato e Stato__2): significato di ciascuna NON dedotto.",
+    "headers": ["Stato", "Stato__2"]
+  }
+}

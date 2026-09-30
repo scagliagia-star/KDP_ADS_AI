@@ -1,0 +1,108 @@
+{
+  "_note": "Soglie del rule engine V1. NON contengono dati economici del libro (price/royalty/target/break-even arrivano da books.json). Un libro puo' sovrascrivere qualunque chiave con 'rule_overrides' in books.json (merge profondo). Le soglie in USD sono espresse come multipli della royalty del libro.",
+  "zero_orders": {
+    "insufficient_clicks_below": 6,
+    "watch_clicks_max": 9,
+    "sample_clicks_min": 10,
+    "high_cpc_spend_mult": 1.0,
+    "bid_down_10_spend_mult": 1.0,
+    "pause_spend_mult": 2.0,
+    "negative_spend_mult": 2.0
+  },
+  "with_orders": {
+    "winner_min_orders": 3,
+    "winner_max_acos_pct": 30.0,
+    "promising_max_acos_pct": 25.0,
+    "promising_low_sample_max_orders": 2,
+    "hold_min_orders": 5,
+    "high_volume_orders": 10,
+    "bid_down_5_max_acos_pct": 50.0,
+    "bid_down_10_max_acos_pct": 60.0,
+    "max_bid_down_pct": 15
+  },
+  "bid_up": {
+    "min_orders": 3,
+    "min_confidence": "MEDIUM",
+    "max_acos_pct_of_target": 0.8,
+    "step_pct": 5,
+    "max_cvr_pct": 50.0,
+    "max_cvr_vs_campaign_avg": 2.5
+  },
+  "confidence": {
+    "orders_medium_from": 3,
+    "orders_high_from": 10,
+    "zero_orders_high_clicks": 25,
+    "zero_orders_high_clicks_with_spend": 15,
+    "zero_orders_high_spend_mult": 2.0,
+    "zero_orders_medium_clicks": 10,
+    "few_orders_upgrade_clicks": 30,
+    "medium_upgrade_clicks": 100,
+    "medium_downgrade_clicks_below": 10,
+    "high_downgrade_clicks_below": 15
+  },
+  "signal": {
+    "min_recent_orders": 3,
+    "min_recent_clicks_zero_orders": 10,
+    "min_lifetime_orders_for_decline_zero": 5,
+    "acos_delta_pp": 5.0
+  },
+  "overlap": {
+    "min_clicks_each": 10,
+    "min_spend_mult_each": 1.0,
+    "similar_acos_pp": 5.0,
+    "similar_acos_rel": 0.15,
+    "material_gap_pp": 10.0,
+    "min_confidence": "MEDIUM"
+  },
+  "priority": {
+    "p1_loss_mult": 5.0,
+    "p2_loss_mult": 2.0,
+    "p3_loss_mult": 0.5,
+    "bid_up_p3_profit_mult": 2.0
+  },
+  "audit": {
+    "acos_tol_pp": 0.5,
+    "ctr_tol_pp": 0.1,
+    "cpc_tol_usd": 0.02,
+    "sum_rel_tol": 0.001
+  },
+  "decision": {
+    "_note": "Decision Layer: consolida le evidenze analitiche. Amazon NON guida la decisione (solo audit/accordo).",
+    "low_sample_loss_mult": 2.0,
+    "low_sample_max_step": 10,
+    "recent_deterioration_cap_step": 5,
+    "recent_deterioration_step10_needs_conf": "HIGH",
+    "recovering_step_reduction": 5,
+    "growth_min_orders": 3,
+    "amazon_weak_spend_mult": 2.0,
+    "tactical_good_min_confidence": "MEDIUM"
+  },
+  "snapshots": {
+    "_note": "Ruolo delle finestre temporali. TACTICAL <= tactical_max_days; RECENT_CONTEXT <= recent_context_max_days; oltre = contesto storico. Le finestre sovrapposte non vengono mai sommate.",
+    "tactical_max_days": 35,
+    "recent_context_max_days": 90
+  },
+  "delivery": {
+    "_note": "Delivery = rapporto per-giorno fra la finestra tattica piu' recente e una finestra di riferimento piu' lunga dello STESSO tipo di report. ratio>=increasing_min: INCREASING; >=declining_max: STABLE; >=collapsed_max: DECLINING; altrimenti COLLAPSED. UNKNOWN se il riferimento ha meno di min_reference_clicks clic/min_reference_days giorni o la finestra recente meno di min_latest_days giorni. Una riga assente dalla finestra recente e' UNKNOWN (flag ABSENT_IN_LATEST_SNAPSHOT) a meno di absent_row_counts_as_zero.",
+    "primary_metric": "impressions_per_day",
+    "fallback_metric": "clicks_per_day",
+    "ratio_increasing_min": 1.25,
+    "ratio_declining_max": 0.75,
+    "ratio_collapsed_max": 0.25,
+    "min_reference_clicks": 10,
+    "min_reference_days": 14,
+    "min_latest_days": 7,
+    "absent_row_counts_as_zero": false,
+    "review_on": [
+      "DELIVERY_COLLAPSED"
+    ],
+    "declining_cap_step": 5,
+    "use_campaign_level_fallback": true
+  },
+  "amazon_compare": {
+    "_note": "Confronto totali snapshot importato vs osservazione Amazon manuale dello stesso intervallo.",
+    "spend_rel_tol": 0.1,
+    "spend_abs_tol_usd": 1.0,
+    "orders_abs_tol": 0.5
+  }
+}

@@ -1,0 +1,74 @@
+[
+  {
+    "book_id": "1805566563",
+    "campaign_id": "CHAIR_TAI_CHI_EXACT",
+    "period_from": "2026-08-30",
+    "period_to": "2026-09-26",
+    "source": "Amazon Campaign Overview Beta",
+    "recommendation_type": "CAMPAIGN_OBSERVATION",
+    "target": null,
+    "observed_spend": 27.56,
+    "observed_orders": 0,
+    "observation": "Campaign spend $27.56, 0 purchases, budget utilization about 3%.",
+    "suggested_action": null,
+    "suggested_direction": "NO_ACTION",
+    "suggested_pct": null,
+    "notes": "Manual entry from user-provided panel observation. Observation only (no action attached to this record)."
+  },
+  {
+    "book_id": "1805566563",
+    "campaign_id": "CHAIR_TAI_CHI_EXACT",
+    "period_from": "2026-08-30",
+    "period_to": "2026-09-26",
+    "source": "Amazon Campaign Overview Beta",
+    "recommendation_type": "REDUCE_TOP_OF_SEARCH_COST",
+    "target": null,
+    "observed_spend": null,
+    "observed_orders": null,
+    "observation": "Amazon suggested reducing Top of Search cost.",
+    "suggested_action": "Reduce Top of Search cost",
+    "suggested_direction": "REDUCE_PLACEMENT_MODIFIER",
+    "suggested_pct": null,
+    "notes": "Manual entry. No percentage shown by Amazon: none recorded, none invented. Placement is not evaluated by V1."
+  },
+  {
+    "book_id": "1805566563", "campaign_id": "CHAIR_TAI_CHI_EXACT", "period_from": "2026-08-30", "period_to": "2026-09-26",
+    "source": "Amazon Campaign Overview Beta", "recommendation_type": "REDUCE_BID_LOW_CONVERSION_KEYWORD",
+    "target": "chair tai chi for men over 50", "observed_spend": 9.39, "observed_orders": 0,
+    "observation": "Highlighted as low-conversion keyword: spend $9.39, 0 orders.",
+    "suggested_action": "Reduce bids on low-conversion keywords", "suggested_direction": "REDUCE_BID", "suggested_pct": null,
+    "notes": "Manual entry. Amazon did not show a specific bid-reduction percentage: none recorded."
+  },
+  {
+    "book_id": "1805566563", "campaign_id": "CHAIR_TAI_CHI_EXACT", "period_from": "2026-08-30", "period_to": "2026-09-26",
+    "source": "Amazon Campaign Overview Beta", "recommendation_type": "REDUCE_BID_LOW_CONVERSION_KEYWORD",
+    "target": "seated tai chi for seniors", "observed_spend": 8.99, "observed_orders": 0,
+    "observation": "Highlighted as low-conversion keyword: spend $8.99, 0 orders.",
+    "suggested_action": "Reduce bids on low-conversion keywords", "suggested_direction": "REDUCE_BID", "suggested_pct": null,
+    "notes": "Manual entry. Amazon did not show a specific bid-reduction percentage: none recorded."
+  },
+  {
+    "book_id": "1805566563", "campaign_id": "CHAIR_TAI_CHI_EXACT", "period_from": "2026-08-30", "period_to": "2026-09-26",
+    "source": "Amazon Campaign Overview Beta", "recommendation_type": "REDUCE_BID_LOW_CONVERSION_KEYWORD",
+    "target": "chair tai chi for seniors", "observed_spend": 8.55, "observed_orders": 0,
+    "observation": "Highlighted as low-conversion keyword: spend $8.55, 0 orders.",
+    "suggested_action": "Reduce bids on low-conversion keywords", "suggested_direction": "REDUCE_BID", "suggested_pct": null,
+    "notes": "Manual entry. Amazon did not show a specific bid-reduction percentage: none recorded."
+  },
+  {
+    "book_id": "1805566563", "campaign_id": "CHAIR_TAI_CHI_EXACT", "period_from": "2026-08-30", "period_to": "2026-09-26",
+    "source": "Amazon Campaign Overview Beta", "recommendation_type": "REDUCE_BID_LOW_CONVERSION_KEYWORD",
+    "target": "tai chi chair workout chart", "observed_spend": 2.04, "observed_orders": 0,
+    "observation": "Highlighted as low-conversion keyword: spend $2.04, 0 orders.",
+    "suggested_action": "Reduce bids on low-conversion keywords", "suggested_direction": "REDUCE_BID", "suggested_pct": null,
+    "notes": "Manual entry. Amazon did not show a specific bid-reduction percentage: none recorded."
+  },
+  {
+    "book_id": "1805566563", "campaign_id": "CHAIR_TAI_CHI_EXACT", "period_from": "2026-08-30", "period_to": "2026-09-26",
+    "source": "Amazon Campaign Overview Beta", "recommendation_type": "REDUCE_BID_LOW_CONVERSION_KEYWORD",
+    "target": "chair tai chi for weight loss", "observed_spend": null, "observed_orders": 0,
+    "observation": "Highlighted as low-conversion keyword: 0 orders (spend not shown).",
+    "suggested_action": "Reduce bids on low-conversion keywords", "suggested_direction": "REDUCE_BID", "suggested_pct": null,
+    "notes": "Manual entry. Spend not reported by user. Amazon did not show a specific bid-reduction percentage: none recorded."
+  }
+]

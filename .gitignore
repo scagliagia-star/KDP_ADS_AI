@@ -1,0 +1,9 @@
+DATABASE/*.db
+DATABASE/*.bak*
+OUTPUT/
+LOGS/
+INPUT/
+ARCHIVE/
+__pycache__/
+*.pyc
+.pytest_cache/

@@ -1,0 +1,9 @@
+{
+  "read_only": true,
+  "db_path": "T:\\KDP_ADS_AI\\DATABASE\\kdp_ads.db",
+  "logs_dir": "T:\\KDP_ADS_AI\\LOGS",
+  "input_dir": "T:\\KDP_ADS_AI\\INPUT",
+  "books_path": "T:\\KDP_ADS_AI\\CONFIG\\books.json",
+  "search_term_max_days": 65,
+  "break_even_mismatch_tolerance_pp": 0.5
+}
