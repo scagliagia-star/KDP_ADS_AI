@@ -40,6 +40,28 @@ NON_DOWN_RANK = {"HOLD": 3, "WATCH": 2, "NO_ACTION": 1, "INSUFFICIENT_DATA": 1}
 CONF_NAMES = ["LOW", "MEDIUM", "HIGH"]
 GROWTH = "BID_UP_5_OPPORTUNITY"
 REVIEW = "REVIEW_DELIVERY_BEFORE_BID_CHANGE"
+REVIEW_STATUS = "REVIEW_TARGET_STATUS"
+HOLD_PAUSED = "HOLD_PAUSED_TARGET"
+# azioni che cambiano il bid o richiedono di toccare il target: senza effetto operativo se il target e' in pausa
+PAUSED_BLOCKED = frozenset(list(STEP_OF) + ["BID_UP_5_CANDIDATE", "BID_UP_10_CANDIDATE", REVIEW])
+OPERATIONAL_ACTIONS = frozenset(list(STEP_OF) + [REVIEW, "NEGATIVE_CANDIDATE"])
+# mappatura ESPLICITA dello stato del Target report (prima colonna 'Stato'); nessun altro valore viene dedotto
+TARGET_STATUS_MAP = {"ABILITATO": "ENABLED", "IN PAUSA": "PAUSED"}
+
+
+def map_target_status(raw_json) -> str:
+    try:
+        raw = json.loads(raw_json) if raw_json else {}
+    except (TypeError, ValueError):
+        return "UNKNOWN"
+    return TARGET_STATUS_MAP.get(str(raw.get("Stato") or "").strip().upper(), "UNKNOWN")
+
+
+def delivery_source_of(eff_src: str | None) -> str:
+    """TARGET = segnale calcolato sul singolo target; CAMPAIGN_FALLBACK = ereditato dalla campagna; UNKNOWN = non disponibile."""
+    if not eff_src:
+        return "UNKNOWN"
+    return "TARGET" if eff_src.startswith("ENTITY") else "CAMPAIGN_FALLBACK"
 
 
 def bump(conf: str) -> str:
@@ -223,6 +245,15 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
             continue
         bid_of[k] = t
     cross = _cross_index(analyze_overlaps_by_period(srows, ctx), ctx)
+    # stato operativo del target: Target LIFETIME piu' recente disponibile (nessun lifetime -> UNKNOWN)
+    status_of, _st_key = {}, {}
+    for t in trows:
+        if t["report_scope"] != "LIFETIME":
+            continue
+        k = (t["campaign_id"], amz.target_identity(t["target"]))
+        key = (t["date_to"] or "", t["id"])
+        if k not in _st_key or key > _st_key[k]:
+            _st_key[k], status_of[k] = key, map_target_status(t.get("raw_json"))
 
     # ---- raggruppamento in entita'
     ents: dict[str, Entity] = {}
@@ -262,7 +293,7 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
             ds.amazon_campaign_level.append(a)
     matched_amz = set()
 
-    out = [_consolidate(e, ctx, cfg, cross, bid_of, amz_by_target, matched_amz, book_id, now, analysis_run_id, ds, camp_ctx, camp_agg)
+    out = [_consolidate(e, ctx, cfg, cross, bid_of, amz_by_target, matched_amz, book_id, now, analysis_run_id, ds, camp_ctx, camp_agg, status_of)
            for e in ents.values()]
     ds.amazon_unmatched = [a for a in amz_recs if a["target_normalized"] and a["id"] not in matched_amz]
     ds.amazon_campaign_notes = _amazon_campaign_notes(ds.amazon_campaign_level, camp_ctx, camp_agg, ctx)
@@ -312,7 +343,7 @@ def _amazon_campaign_notes(campaign_level, camp_ctx, camp_agg, ctx) -> list[str]
 
 
 def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz, book_id, now, analysis_run_id, ds,
-                 camp_ctx, camp_agg) -> dict:
+                 camp_ctx, camp_agg, status_of=None) -> dict:
     R = ctx.royalty
     dcfg, snap_cfg = ctx.rules["delivery"], ctx.rules["snapshots"]
     cc = camp_ctx.get(e.campaign_id) or {"snaps": {"TARGETING": {}, "SEARCH_TERM": {}}, "comparable": set(), "latest_comparable": None,
@@ -454,7 +485,8 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
             if L and L.lowsample or (P and P.lowsample and rule in ("C3_RECENT_ONLY",)):
                 flags.append("LOW_SAMPLE_LOSS")
             # ---- SAFETY: delivery. ACOS alto + delivery crollata => prima verificare la delivery, non abbassare ancora il bid
-            if eff_sig in dcfg["review_on"]:
+            inherited = delivery_source_of(eff_src) == "CAMPAIGN_FALLBACK"
+            if eff_sig in dcfg["review_on"] and not inherited:
                 review_underlying = ACTION_OF[step]
                 flags.append("REVIEW_DELIVERY")
                 step = 0
@@ -462,7 +494,10 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
                 logic += (f" SAFETY DELIVERY: {eff_sig} ({eff_detail}). ACOS/risultati sfavorevoli ma la campagna/target sta gia' quasi "
                           f"smettendo di entrare nelle aste: nessun ulteriore bid-down, prima verificare la delivery (candidato sottostante: {review_underlying}).")
             else:
-                if eff_sig == "DELIVERY_DECLINING" and step > dcfg["declining_cap_step"]:
+                if inherited and eff_sig in dcfg["review_on"]:
+                    # COLLASSO ereditato dalla campagna: non e' prova sul singolo target, niente REVIEW; trattato come 'in calo' (solo cap del passo)
+                    flags.append("DELIVERY_INHERITED_COLLAPSED_NOT_ENFORCED")
+                if (eff_sig == "DELIVERY_DECLINING" or (inherited and eff_sig in dcfg["review_on"])) and step > dcfg["declining_cap_step"]:
                     logic += (f" Delivery in calo ({eff_detail}): passo limitato da -{step}% a -{dcfg['declining_cap_step']}%.")
                     step = dcfg["declining_cap_step"]
                     flags.append("DELIVERY_DECLINING_CAP")
@@ -479,6 +514,26 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
             final_action, conf = base.action, base.conf
             src = "tattica" if base is Tv else "recente" if base is Rc else "lifetime"
             logic = f"Nessuna evidenza di bid-down: azione dall'evidenza {src} ({base.action})."
+    # ---- stato del target: un target in pausa non puo' avere un'azione di bid operativa (l'analisi economica resta)
+    tstatus = (status_of or {}).get((e.campaign_id, ident), "UNKNOWN")
+    underlying = None
+    if tstatus == "PAUSED" and final_action in PAUSED_BLOCKED:
+        underlying = review_underlying or final_action
+        logic += (f" Target currently paused. Underlying economics would suggest {underlying} if reactivated. "
+                  "Nessuna riattivazione automatica.")
+        final_action, step = HOLD_PAUSED, 0
+        flags.append("TARGET_PAUSED")
+    elif tstatus == "UNKNOWN" and e.kind != "neg" and final_action in PAUSED_BLOCKED:
+        underlying = review_underlying or final_action
+        logic += (" Target status unknown. Verify current Amazon Ads status before applying any bid action. "
+                  f"Underlying candidate: {underlying}.")
+        final_action, step = REVIEW_STATUS, 0
+        flags.append("TARGET_STATUS_UNKNOWN")
+    if tstatus == "PAUSED" and any(ev is not None and ev.m.spend > 0 for ev in (Tv, Rc)):
+        flags.append("RECENT_SPEND_ON_PAUSED_TARGET")
+        logic += (" Spesa recente > 0 su target in pausa: puo' essere precedente alla data effettiva di pausa o dovuta a differenze "
+                  "temporali di reporting; la causa non e' dedotta.")
+    actionable = tstatus == "ENABLED" and final_action in OPERATIONAL_ACTIONS
     bid_pct = None if (e.kind == "neg" or step in (0, 100)) else -step
 
     # ---- growth opportunity (mai un aumento operativo)
@@ -494,7 +549,7 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
     # ---- priorita' su perdita stimata massima fra le evidenze; il REVIEW mantiene la priorita' del candidato sottostante
     ms = [ev.m for ev in (L, Tv, Rc) if ev] + [n.m for n in negs]
     basis = max(ms, key=lambda m: m.est_loss) if ms else compute_metrics(0, 0, 0, 0, 0, R)
-    prio = priority(review_underlying or final_action, basis, conf or "LOW", ctx)
+    prio = priority(underlying or review_underlying or final_action, basis, conf or "LOW", ctx)
     if e.kind == "neg":
         conf = negs[0].conf
 
@@ -554,7 +609,9 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
     reason = (f"FINAL {final_action}{'' if bid_pct is None else f' ({bid_pct:+.0f}%)'} [rule {rule}, conf {conf}, prio {prio}]. "
               + " | ".join([_line("Lifetime", L), _line("Tactical", Tv), _line("Recent", Rc)]
                            + ([_line("Search term negative", negs[0])] if negs else [])
-                           + [f"Delivery: {eff_sig}{'' if eff_src is None else ' (' + eff_src + ')'}{'' if not eff_detail else ' ' + eff_detail}",
+                           + [f"Delivery: {eff_sig}{'' if eff_src is None else ' (' + delivery_source_of(eff_src) + ':' + eff_src.split(':')[1] + ')'}"
+                              f"{' - delivery signal inherited from campaign' if delivery_source_of(eff_src) == 'CAMPAIGN_FALLBACK' else ''}"
+                              f"{'' if not eff_detail else ' ' + eff_detail}",
                               f"Cross: {cross_txt or 'nessun overlap'}", f"Amazon: {am_text or 'n/d'}"])
               + f" | Logica: {logic}" + ("" if not flags else f" Flag: {', '.join(dict.fromkeys(flags))}."))
     tac_ev = _ev_dict(Tv)
@@ -597,7 +654,8 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
         "tactical_impressions_per_day": tac_pd["impressions_per_day"], "tactical_clicks_per_day": tac_pd["clicks_per_day"],
         "tactical_spend_per_day": tac_pd["spend_per_day"], "tactical_orders_per_day": tac_pd["orders_per_day"],
         "delivery_signal": eff_sig, "delivery_ratio": (dratio if dsig != "UNKNOWN" else cratio if eff_src and eff_src.startswith("CAMPAIGN") else None),
-        "delivery_source": eff_src, "campaign_delivery_signal": csig,
+        "delivery_source": delivery_source_of(eff_src), "campaign_delivery_signal": csig,
+        "target_status": tstatus, "underlying_candidate_action": underlying, "operationally_actionable": int(actionable),
         "latest_period_action": Tv.action if Tv else None, "historical_context": historical_context,
         "final_consolidated_action": final_action,
         "tactical_evidence": json.dumps({"tactical": tac_ev, "other_windows": [

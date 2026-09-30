@@ -30,6 +30,7 @@ def write_decisions_csv(ds, out_dir, ts) -> Path:
                 if isinstance(row[k], float):
                     row[k] = round(row[k], 2)
             row["manual_approval_required"] = "true"
+            row["operationally_actionable"] = "true" if d.get("operationally_actionable") else "false"
             w.writerow(row)
     return p
 
@@ -79,7 +80,11 @@ def _block(d):
          f"- **{d['recent_window'] or 'RECENT (contesto)'}** {d['recent_period'] or ''} ({d['recent_action'] or 'n/d'}): {_ev(d, 'recent')} · signal {d['recent_vs_historical_signal']}",
          f"- **{d['tactical_window'] or '28D / latest comparable period'}** {d['tactical_period'] or ''} "
          f"({'comparabile' if d['comparable_period'] else 'NON comparabile/assente'}; latest_period_action {d['latest_period_action'] or 'n/d'}): {_ev(d, 'tactical')}",
-         f"- **Delivery**: {d['delivery_signal']}" + (f" ({d['delivery_source']}, x{d['delivery_ratio']:.2f})" if d["delivery_ratio"] is not None else "")
+         f"- **Stato target**: {d['target_status']} · azionabile operativamente: **{'si' if d['operationally_actionable'] else 'no'}**"
+         + (f" · azione sottostante se riattivato: **{d['underlying_candidate_action']}**" if d["underlying_candidate_action"] else ""),
+         f"- **Delivery**: {d['delivery_signal']} · source **{d['delivery_source']}**"
+         + (f" (x{d['delivery_ratio']:.2f})" if d["delivery_ratio"] is not None else "")
+         + (" — _delivery signal inherited from campaign_" if d["delivery_source"] == "CAMPAIGN_FALLBACK" else "")
          + f" · campagna: {d['campaign_delivery_signal']}",
          f"- **Historical context**: {d['historical_context'] or 'n/d'}",
          f"- **Cross campaign**: {d['cross_campaign_overlap'] or 'nessun overlap'}"
@@ -124,16 +129,38 @@ def decisions_markdown(ds) -> str:
     rows = [d for d in D if d["priority"] == "P4"]
     A.append(f"### P4 ({len(rows)})\n")
     A.append("_Watch / hold / dati insufficienti / opportunita' minori. Vista compatta; dettaglio completo e reason nel CSV._\n")
-    head = ["Campaign", "Target", "Lifetime", "Recent", "Tactical", "Delivery", "Cross", "Amazon", "Final", "Conf", "Growth"]
+    head = ["Campaign", "Target", "Stato", "Lifetime", "Recent", "Tactical", "Delivery", "Src", "Cross", "Amazon", "Final", "Conf", "Growth"]
     trs = []
     for d in rows:
         life = "n/d" if d["lifetime_clicks"] is None else f"{d['lifetime_orders']:g}o/{d['lifetime_clicks']:g}c/{_acos(d['lifetime_acos'])}"
         rec = "n/d" if d["recent_clicks"] is None else f"{d['recent_orders']:g}o/{d['recent_clicks']:g}c/{_acos(d['recent_acos'])}"
         tac = "n/d" if d["tactical_clicks"] is None else f"{d['tactical_orders']:g}o/{d['tactical_clicks']:g}c/{_acos(d['tactical_acos'])}"
-        trs.append([d["campaign_id"].replace("CHAIR_TAI_CHI_", ""), d["target"], life, rec, tac,
-                    (d["delivery_signal"] or "").replace("DELIVERY_", ""), d["cross_campaign_overlap"] or "",
+        trs.append([d["campaign_id"].replace("CHAIR_TAI_CHI_", ""), d["target"], d["target_status"], life, rec, tac,
+                    (d["delivery_signal"] or "").replace("DELIVERY_", ""), {"TARGET": "T", "CAMPAIGN_FALLBACK": "C*"}.get(d["delivery_source"], "?"),
+                    d["cross_campaign_overlap"] or "",
                     d["recommendation_agreement"] or "", d["final_action"], d["confidence"], d["growth_opportunity"] or ""])
     A.append(_table(head, trs))
+
+    if rows:
+        A.append("_Src: T = delivery del singolo target; C* = delivery signal inherited from campaign (fallback, non e' prova sul target)._\n")
+    paused = [d for d in D if d["target_status"] == "PAUSED"]
+    A.append(f"### PAUSED TARGETS WITH UNDERLYING ACTION ({sum(1 for d in paused if d['underlying_candidate_action'])} di {len(paused)} target in pausa)\n")
+    A.append("_Target IN PAUSA: il bid non ha effetto operativo, quindi nessun bid-down/review come azione finale (HOLD_PAUSED_TARGET); "
+             "l'azione economica sottostante e' conservata. Nulla viene riattivato._\n")
+
+    def _ptr(d):
+        life = "n/d" if d["lifetime_clicks"] is None else f"{d['lifetime_clicks']:g}c/{d['lifetime_orders']:g}o/${d['lifetime_spend']:.2f}/ACOS {_acos(d['lifetime_acos'])}"
+        rec = []
+        if d["tactical_clicks"] is not None:
+            rec.append(f"28D {d['tactical_clicks']:g}c/{d['tactical_orders']:g}o/${d['tactical_spend']:.2f}")
+        if d["recent_clicks"] is not None:
+            rec.append(f"{d['recent_window'] or 'recente'} {d['recent_clicks']:g}c/{d['recent_orders']:g}o/${d['recent_spend']:.2f}")
+        return [d["campaign_id"].replace("CHAIR_TAI_CHI_", ""), d["target"], d["target_status"], d["underlying_candidate_action"] or "",
+                life, " / ".join(rec) or "n/d", d["final_action"],
+                "RECENT_SPEND_ON_PAUSED_TARGET" if "RECENT_SPEND_ON_PAUSED_TARGET" in (d["flags"] or "") else "", d["reason"] or ""]
+    ptr = [_ptr(d) for d in paused if d["underlying_candidate_action"] or "RECENT_SPEND_ON_PAUSED_TARGET" in (d["flags"] or "")]
+    A.append(_table(["Campaign", "Target", "Stato", "Underlying", "Lifetime", "Recente", "Final", "Flag", "Reason"], ptr)
+             if ptr else "_nessun target in pausa con azione sottostante o spesa recente_\n")
 
     A.append("### Amazon AI — evidenze registrate a mano\n")
     A.append("_Fonte: registrazione manuale (nessuno scraping). Periodo Amazon e periodi dei nostri dati NON coincidono._\n")

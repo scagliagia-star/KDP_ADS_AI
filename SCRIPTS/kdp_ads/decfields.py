@@ -34,6 +34,7 @@ DEC_FIELDS = [
     ("delivery_signal", "TEXT"), ("delivery_ratio", "REAL"), ("delivery_source", "TEXT"), ("campaign_delivery_signal", "TEXT"),
     ("latest_period_action", "TEXT"), ("historical_context", "TEXT"), ("final_consolidated_action", "TEXT"),
     ("tactical_evidence", "TEXT"),
+    ("target_status", "TEXT"), ("underlying_candidate_action", "TEXT"), ("operationally_actionable", "INTEGER"),
     ("manual_approval_required", "INTEGER"), ("status", "TEXT"), ("status_updated_at", "TEXT"),
 ]
 DEC_COLUMNS = [n for n, _ in DEC_FIELDS]
