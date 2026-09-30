@@ -32,11 +32,11 @@ def main() -> int:
     csv_p = write_decisions_csv(ds, ROOT / "OUTPUT" / "decisions", ts)
     md_p = write_combined_markdown(ds, ROOT / "OUTPUT" / "daily_reports", ts, row["md_path"] if row else None)
     run_id = None if a.no_db else save_decisions_to_db(conn, ds, csv_p, md_p)
-    for w in ds.warnings:
+    for w in ds.all_warnings():
         logger.warning(w)
     logger.info("Output: %s | %s (decision run %s)", csv_p, md_p, run_id)
     print(f"CSV decisioni: {csv_p}\nMarkdown:      {md_p}\nLog:           {log_path}\ndecision run:  {run_id}")
-    print(f"Recs analitiche: {ds.accounting['analytic_recommendations']} -> decisioni: {len(ds.decisions)} | warning: {len(ds.warnings)}")
+    print(f"Recs analitiche: {ds.accounting['analytic_recommendations']} -> decisioni: {len(ds.decisions)} | warning: {len(ds.analysis_warnings)} ereditati + {len(ds.warnings)} propri")
     conn.close()
     return 0
 

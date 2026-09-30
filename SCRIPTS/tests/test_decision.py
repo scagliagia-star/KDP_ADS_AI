@@ -16,7 +16,7 @@ from kdp_ads import amazon
 from kdp_ads.analysis import analyze_book
 from kdp_ads.decfields import DEC_COLUMNS, STATUSES
 from kdp_ads.decision import action_key, build_decisions
-from kdp_ads.decisions_report import save_decisions_to_db, write_combined_markdown, write_decisions_csv
+from kdp_ads.decisions_report import decisions_markdown, save_decisions_to_db, write_combined_markdown, write_decisions_csv
 from kdp_ads.report import save_to_db, write_markdown
 
 BOOK = "1805566563"
@@ -305,6 +305,62 @@ class StatusAndOutputTests(DBase):
         self.assertLess(md.index("### P3"), md.index("### P4"))
         for word in ("Lifetime", "Recent", "Cross campaign", "Amazon AI", "Final recommendation", "Reason", "PROPOSED"):
             self.assertIn(word, md)
+
+
+class InheritedWarningsTests(DBase):
+    W = ["DATA_WARNING C_EXACT: clicks A (27.00) > B (26.00)", "DATA_WARNING C_EXACT: spend differisce da Amazon"]
+    DATA = {"C_EXACT": ("EXACT", [("kw one", 200, 20, 550, 1000), ("kw two", 40, 8, 40, 200)], [("kw one", "kw one", 60, 8, 88, 160)])}
+
+    def set_warnings(self, run_id, warns):
+        self.conn.execute("UPDATE analysis_runs SET warnings_json=? WHERE run_id=?", (json.dumps(warns), run_id))
+        self.conn.commit()
+
+    @staticmethod
+    def stable(ds):
+        return [{k: v for k, v in d.items() if k not in ("generated_at", "run_id")} for d in ds.decisions]
+
+    def test_all_analysis_warnings_inherited_and_separated(self):
+        self.prep(self.DATA)
+        self.set_warnings(self.run_id, self.W)
+        ds = self.decisions()
+        self.assertEqual(ds.analysis_warnings, self.W)
+        self.assertEqual(ds.decision_warnings, ds.warnings)
+        self.assertFalse(any(w in ds.warnings for w in self.W))               # separati dai propri
+        self.assertEqual(ds.all_warnings()[:2], [f"[analysis_run {self.run_id}] {w}" for w in self.W])
+
+    def test_no_analysis_warnings_zero_inherited(self):
+        self.prep(self.DATA)
+        ds = self.decisions()
+        self.assertEqual(ds.analysis_warnings, [])
+        self.assertNotIn("ereditati", decisions_markdown(ds))
+
+    def test_analysis_run_option_uses_selected_run(self):
+        self.prep(self.DATA)
+        old = self.run_id
+        self.set_warnings(old, self.W)
+        an = analyze_book(self.conn, self.settings, self.mapping, RULES_PATH, BOOK, self.logger)
+        new = save_to_db(self.conn, an, "a2.csv", "a2.md", "o2.csv", an.ctx.rules)
+        self.assertGreater(new, old)
+        self.assertEqual(build_decisions(self.conn, self.settings, RULES_PATH, BOOK, None, self.logger).analysis_warnings, [])
+        ds_old = build_decisions(self.conn, self.settings, RULES_PATH, BOOK, old, self.logger)
+        self.assertEqual((ds_old.analysis_run_id, ds_old.analysis_warnings), (old, self.W))
+
+    def test_markdown_and_db_contain_warnings_and_decisions_unchanged(self):
+        self.prep(self.DATA)
+        base = self.decisions()
+        self.set_warnings(self.run_id, self.W)
+        ds = self.decisions()
+        self.assertEqual(self.stable(ds), self.stable(base))                  # decisioni identiche
+        md = decisions_markdown(ds)
+        self.assertIn(f"Warning ereditati dall'analisi (run {self.run_id})", md)
+        for w in self.W:
+            self.assertIn(w, md)
+        ds.warnings.append("NOTA propria di prova")
+        md = decisions_markdown(ds)
+        self.assertLess(md.index("Warning ereditati dall'analisi"), md.index("Decision layer"))
+        run = save_decisions_to_db(self.conn, ds, "x.csv", "x.md")
+        saved = json.loads(self.conn.execute("SELECT warnings_json FROM decision_runs WHERE run_id=?", (run,)).fetchone()[0])
+        self.assertEqual(saved, [f"[analysis_run {self.run_id}] {w}" for w in self.W] + ["[decision] NOTA propria di prova"])
 
 
 if __name__ == "__main__":

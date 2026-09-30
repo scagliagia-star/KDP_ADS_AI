@@ -40,7 +40,7 @@ def save_decisions_to_db(conn, ds, csv_path, md_path) -> int:
             "INSERT INTO decision_runs (book_id,generated_at,analysis_run_id,csv_path,md_path,decision_count,accounting_json,warnings_json) "
             "VALUES (?,?,?,?,?,?,?,?)",
             (ds.ctx.book_id, ds.generated_at, ds.analysis_run_id, str(csv_path), str(md_path), len(ds.decisions),
-             json.dumps(ds.accounting), json.dumps(ds.warnings, ensure_ascii=False)))
+             json.dumps(ds.accounting), json.dumps(ds.all_warnings(), ensure_ascii=False)))
         run_id = cur.lastrowid
         sql = f"INSERT INTO decisions ({','.join(DEC_COLUMNS)}) VALUES ({','.join('?' * len(DEC_COLUMNS))})"
         for d in ds.decisions:
@@ -149,6 +149,10 @@ def decisions_markdown(ds) -> str:
     for a in ds.amazon_unmatched:
         A.append(f"- **NON abbinato** a un target: {a['campaign_id']} `{a['target']}` ({a['recommendation_type']})")
     A.append("")
+    if ds.analysis_warnings:
+        A.append(f"### Warning ereditati dall'analisi (run {ds.analysis_run_id})\n")
+        A.extend(f"- {w}" for w in ds.analysis_warnings)
+        A.append("")
     if ds.warnings:
         A.append("### Decision layer — warning\n")
         A.extend(f"- {w}" for w in ds.warnings)

@@ -141,11 +141,21 @@ class DecisionSet:
     analysis_run_id: int
     decisions: list = field(default_factory=list)
     accounting: dict = field(default_factory=dict)
-    warnings: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)            # warning PROPRI del Decision Layer (decision_warnings)
+    analysis_warnings: list = field(default_factory=list)   # DATA_WARNING ereditati dall'analysis_run usato
     amazon_unmatched: list = field(default_factory=list)
     amazon_campaign_level: list = field(default_factory=list)
     amazon_campaign_notes: list = field(default_factory=list)
     camp_ctx: dict = field(default_factory=dict)
+
+    @property
+    def decision_warnings(self) -> list:
+        return self.warnings
+
+    def all_warnings(self) -> list:
+        """Warning con prefisso di provenienza: prima gli ereditati dall'analisi, poi i propri."""
+        return ([f"[analysis_run {self.analysis_run_id}] {w}" for w in self.analysis_warnings]
+                + [f"[decision] {w}" for w in self.warnings])
 
 
 def _cross_index(overlaps, ctx):
@@ -192,6 +202,9 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
         "SELECT * FROM recommendations WHERE book_id=? AND run_id=? ORDER BY rec_id", (book_id, analysis_run_id))]
     ds = DecisionSet(ctx=ctx, generated_at=now, analysis_run_id=analysis_run_id)
     ds.accounting["analytic_recommendations"] = len(recs)
+    arow = conn.execute("SELECT warnings_json FROM analysis_runs WHERE run_id=? AND book_id=?", (analysis_run_id, book_id)).fetchone()
+    if arow and arow["warnings_json"]:
+        ds.analysis_warnings = list(json.loads(arow["warnings_json"]))
 
     # contesto finestre per campagna (snapshot presenti, periodi comparabili, periodo tattico) e totali per snapshot
     ds.camp_ctx = camp_ctx = win.campaign_context(recs, ctx.rules["snapshots"])
