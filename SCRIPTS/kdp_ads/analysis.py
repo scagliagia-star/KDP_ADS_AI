@@ -69,7 +69,7 @@ def analyze_book(conn, settings: dict, mapping: dict, rules_path, book_id: str, 
             comparable[r["campaign_id"]].add((r["date_from"], r["date_to"]))
     for r in trows + srows:
         r["_m"] = compute_metrics(r["impressions"], r["clicks"], r["spend"], r["orders"], r["sales"], ctx.royalty)
-        r["target_type"] = target_type(r["target"])
+        r["target_type"] = target_type(r["target"], r["campaign_type"])
         r["period_id"] = r.get("period_id") or make_period_id(r["report_scope"], r["date_from"], r["date_to"])
         r["_days"] = days_inclusive(r["date_from"], r["date_to"]) if r["report_scope"] == "DATE_RANGE" else None
         r["_comparable"] = int(r["report_scope"] == "DATE_RANGE" and (r["date_from"], r["date_to"]) in comparable[r["campaign_id"]])
@@ -104,7 +104,7 @@ def analyze_book(conn, settings: dict, mapping: dict, rules_path, book_id: str, 
     for kind, rows in (("T", trows), ("S", srows)):
         for r in rows:
             rt = "TARGETING" if kind == "T" else "SEARCH_TERM"
-            scope = "TARGET" if kind == "T" or term_matches_target(r["search_term"], r["target"]) else "PARENT_TARGET"
+            scope = "TARGET" if kind == "T" or term_matches_target(r["search_term"], r["target"], r["campaign_type"]) else "PARENT_TARGET"
             m = r["_m"]
             d = decide(m, ctx, rt, scope, avg_cvr.get((r["campaign_id"], kind, r["period_id"])))
             sig, sig_detail = signals.get((kind, r["id"]), ("UNKNOWN", "nessun confronto verificabile"))
