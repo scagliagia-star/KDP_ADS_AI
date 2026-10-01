@@ -29,7 +29,7 @@ from . import amazon as amz
 from . import registry
 from .analysis import _load
 from .crosscampaign import analyze_overlaps_by_period
-from .metrics import Metrics, compute_metrics, normalize_term, product_asin, target_type, term_matches_target
+from .metrics import Metrics, compute_metrics, normalize_term, product_asin, set_currency, sym, target_type, term_matches_target
 from .rules import CONF_ORDER, ctx_from_book, load_rules, priority
 from . import windows as win
 from .snapshots import days_inclusive, period_id as make_period_id, window_label, window_role
@@ -113,7 +113,7 @@ def make_ev(rec: dict, ctx, cfg: dict, term_equals_target: bool) -> Ev:
         step = 5 if m.acos <= b["mild"] else 10 if m.acos <= b["unprofitable"] else 15
         step = min(step, cfg["low_sample_max_step"])
         action, conf, lowsample = ACTION_OF[step], "LOW", True
-        note = (f"campione piccolo ({m.orders:g} ordini) ma perdita stimata ${m.est_loss:.2f} >= "
+        note = (f"campione piccolo ({m.orders:g} ordini) ma perdita stimata {sym()}{m.est_loss:.2f} >= "
                 f"{cfg['low_sample_loss_mult']:g}x royalty: bid-down con confidence LOW")
     return Ev(rec, action, STEP_OF.get(action, 0), conf, m, growth, lowsample, note)
 
@@ -138,8 +138,8 @@ def _line(label, ev: Ev | None) -> str:
     acos = "N/A (NO_SALES)" if m.acos is None else f"{m.acos:.1f}%"
     tag = ev.action + (" (rivalutato low-sample)" if ev.lowsample else "")
     per = "" if r["date_from"] is None and r["report_scope"] == "LIFETIME" else f" {r['date_from']}→{r['date_to']}"
-    return (f"{label}{per}: {tag} [{r['rule_classification']}] — {m.clicks:g} clic, {m.orders:g} ordini, spend ${m.spend:.2f}, "
-            f"sales ${m.sales:.2f}, ACOS {acos}, profit ${m.est_profit:.2f}, conf {ev.conf}")
+    return (f"{label}{per}: {tag} [{r['rule_classification']}] — {m.clicks:g} clic, {m.orders:g} ordini, spend {sym()}{m.spend:.2f}, "
+            f"sales {sym()}{m.sales:.2f}, ACOS {acos}, profit {sym()}{m.est_profit:.2f}, conf {ev.conf}")
 
 
 # ------------------------------------------------------------------ entita'
@@ -207,16 +207,31 @@ def _pick_life(recs):
 
 
 def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run_id: int | None = None,
-                    logger=None) -> DecisionSet:
+                    logger=None, marketplace: str | None = None) -> DecisionSet:
+    """Decisioni di UN marketplace del libro: usa l'economia (prezzo, royalty, ACOS) e i dati di quel marketplace, mai altri.
+    Il marketplace e' quello richiesto, oppure quello del run di analisi indicato (run storici senza marketplace = marketplace
+    legacy del libro), oppure l'unico configurato."""
     books = registry.load_books(settings["books_path"])
-    book = books[book_id]
+    full = books[book_id]
+    if analysis_run_id is not None:
+        r0 = conn.execute("SELECT marketplace FROM analysis_runs WHERE run_id=? AND book_id=?", (analysis_run_id, book_id)).fetchone()
+        if r0 is not None:
+            run_mp = registry.run_marketplace(full, r0["marketplace"])
+            if marketplace and run_mp and str(marketplace).upper() != run_mp:
+                raise registry.RegistryError(f"il run di analisi {analysis_run_id} appartiene al marketplace {run_mp}, non a {str(marketplace).upper()}")
+            marketplace = marketplace or run_mp
+    book = registry.book_view(full, marketplace)
+    mp = book["marketplace"]
     eco, _ = registry.book_economics(book, settings.get("break_even_mismatch_tolerance_pp", 0.5))
-    ctx = ctx_from_book(book, eco, load_rules(rules_path))
+    ctx = ctx_from_book(book, eco, load_rules(rules_path), registry.file_tag(full, mp))
     cfg, R = ctx.rules["decision"], ctx.royalty
+    set_currency(ctx.currency)
     now = datetime.now().isoformat(timespec="seconds")
 
     if analysis_run_id is None:
-        row = conn.execute("SELECT MAX(run_id) FROM analysis_runs WHERE book_id=?", (book_id,)).fetchone()
+        legacy = registry.run_marketplace(full, None)
+        row = conn.execute("SELECT MAX(run_id) FROM analysis_runs WHERE book_id=? AND "
+                           "(UPPER(marketplace)=? OR (marketplace IS NULL AND ?=?))", (book_id, mp, mp, legacy)).fetchone()
         analysis_run_id = row[0]
     if analysis_run_id is None:
         raise registry.RegistryError(f"nessuna analisi salvata per il libro {book_id}: esegui prima analyze.py")
@@ -233,7 +248,7 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
     camp_agg = win.campaign_aggregates(recs)
 
     # dati per bid corrente e overlap (deterministici, stessa funzione del motore analitico)
-    trows, srows = _load(conn, "target_rows", book_id), _load(conn, "search_term_rows", book_id)
+    trows, srows = _load(conn, "target_rows", book_id, mp), _load(conn, "search_term_rows", book_id, mp)
     for r in srows:
         r["target_type"] = target_type(r["target"])
     bid_of = {}
@@ -284,7 +299,9 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
     ds.accounting["evidence_rows_total"] = sum(ds.accounting[k] for k in list(ds.accounting) if k not in (
         "analytic_recommendations", "evidence_rows_total"))
 
-    amz_recs = amz.load(conn, book_id)
+    mp_campaigns = {r["campaign_id"] for r in trows + srows} | {r["campaign_id"] for r in conn.execute(
+        "SELECT campaign_id FROM campaigns WHERE book_id=? AND UPPER(marketplace)=?", (book_id, mp))}
+    amz_recs = [a for a in amz.load(conn, book_id) if a["campaign_id"] in mp_campaigns]     # solo campagne di QUESTO marketplace
     amz_by_target = defaultdict(list)
     for a in amz_recs:
         if a["target_normalized"]:
@@ -336,8 +353,8 @@ def _amazon_campaign_notes(campaign_level, camp_ctx, camp_agg, ctx) -> list[str]
         ratio = am_spd / ref_spd
         sig = ("DELIVERY_INCREASING" if ratio >= dcfg["ratio_increasing_min"] else "DELIVERY_STABLE" if ratio >= dcfg["ratio_declining_max"]
                else "DELIVERY_DECLINING" if ratio >= dcfg["ratio_collapsed_max"] else "DELIVERY_COLLAPSED")
-        notes.append(f"{a['campaign_id']}: spesa/giorno secondo Amazon (manuale) ${am_spd:.2f} ({a['period_from']}→{a['period_to']}, {days}g) vs "
-                     f"${ref_spd:.2f} nel Search Term {ref_pid} ({ref['days']}g) = x{ratio:.2f} → {sig} (INFORMATIVO: osservazione manuale, "
+        notes.append(f"{a['campaign_id']}: spesa/giorno secondo Amazon (manuale) {sym()}{am_spd:.2f} ({a['period_from']}→{a['period_to']}, {days}g) vs "
+                     f"{sym()}{ref_spd:.2f} nel Search Term {ref_pid} ({ref['days']}g) = x{ratio:.2f} → {sig} (INFORMATIVO: osservazione manuale, "
                      "non guida decisioni finche' non si importano i report dello stesso intervallo)")
     return notes
 
@@ -563,13 +580,13 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
         am_ev = matches
         parts, agreements, notes = [], [], []
         for a in matches:
-            ob = "" if a["observed_spend"] is None else f" spesa ${a['observed_spend']:.2f}"
+            ob = "" if a["observed_spend"] is None else f" spesa {sym()}{a['observed_spend']:.2f}"
             oo = "" if a["observed_orders"] is None else f", {a['observed_orders']:g} acquisti"
             parts.append(f"{a['recommendation_type']} [{a['suggested_direction']}]: {a['suggested_action'] or a['observation'] or ''}"
                          f" ({a['source']}, {a['period_from']}→{a['period_to']};{ob}{oo})")
             agreements.append(amz.agreement(final_action, a["suggested_direction"], bool(growth)))
             if a["observed_spend"] is not None and a["observed_spend"] < cfg["amazon_weak_spend_mult"] * R:
-                notes.append(f"evidenza Amazon debole (spesa osservata ${a['observed_spend']:.2f} < {cfg['amazon_weak_spend_mult']:g}x royalty)")
+                notes.append(f"evidenza Amazon debole (spesa osservata {sym()}{a['observed_spend']:.2f} < {cfg['amazon_weak_spend_mult']:g}x royalty)")
             rc_rec = Rc.rec if Rc else None
             if a["observed_orders"] == 0 and rc_rec and Rc.m.orders > 0:
                 notes.append(f"Amazon vede 0 acquisti in {a['period_from']}→{a['period_to']} mentre il nostro recente "
@@ -584,7 +601,7 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
     child_note = None
     if e.child:
         adverse = [c for c in e.child if c["recommended_action"].startswith("BID_DOWN") or c["recommended_action"] in ("PAUSE_CANDIDATE", "NEGATIVE_CANDIDATE")]
-        child_note = (f"{len(e.child)} search term figli (spesa ${sum(c['spend'] for c in e.child):.2f}, "
+        child_note = (f"{len(e.child)} search term figli (spesa {sym()}{sum(c['spend'] for c in e.child):.2f}, "
                       f"{sum(c['orders'] for c in e.child):g} ordini) attribuiti a questo target; {len(adverse)} con azione analitica avversa: "
                       "contesto, non guidano un secondo bid change")
 
@@ -617,7 +634,7 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
     tac_ev = _ev_dict(Tv)
     d = {
         "decision_id": None, "action_key": e.key, "run_id": None, "analysis_run_id": analysis_run_id, "generated_at": now,
-        "book_id": book_id, "campaign_id": e.campaign_id, "campaign_name": base_rec["campaign_name"],
+        "book_id": book_id, "marketplace": ctx.marketplace, "campaign_id": e.campaign_id, "campaign_name": base_rec["campaign_name"],
         "campaign_type": base_rec["campaign_type"], "target": e.target, "target_type": tgt_type,
         "match_type": base_rec["match_type"] if e.kind != "neg" else None,
         "search_term": negs[0].rec["search_term"] if negs else None,

@@ -2,7 +2,7 @@
 
 REC_FIELDS = [
     ("run_id", "INTEGER"), ("generated_at", "TEXT"),
-    ("book_id", "TEXT"), ("title", "TEXT"), ("campaign_id", "TEXT"), ("campaign_name", "TEXT"),
+    ("book_id", "TEXT"), ("marketplace", "TEXT"), ("title", "TEXT"), ("campaign_id", "TEXT"), ("campaign_name", "TEXT"),
     ("campaign_type", "TEXT"), ("report_type", "TEXT"), ("report_scope", "TEXT"), ("date_from", "TEXT"), ("date_to", "TEXT"),
     ("target", "TEXT"), ("search_term", "TEXT"), ("match_type", "TEXT"), ("added_as", "TEXT"),
     ("target_type", "TEXT"), ("action_scope", "TEXT"),

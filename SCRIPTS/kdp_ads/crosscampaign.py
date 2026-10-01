@@ -1,7 +1,7 @@
 """Segnale recente-vs-storico e analisi cross-campaign. Solo confronti verificabili, nessuna causalita' assunta."""
 from collections import defaultdict
 
-from .metrics import Metrics, compute_metrics, normalize_term, product_asin, term_matches_target
+from .metrics import Metrics, compute_metrics, normalize_term, product_asin, set_currency, sym, term_matches_target
 from .snapshots import days_inclusive
 from .rules import CONF_ORDER, BookCtx, calculate_confidence
 
@@ -71,6 +71,7 @@ def analyze_overlaps(st_rows: list[dict], ctx: BookCtx) -> list[dict]:
     Classe base CROSS_CAMPAIGN_OVERLAP; 'possible_inefficiency' solo se stesso termine + entrambe spendono
     in modo significativo + una materialmente meno efficiente + campione sufficiente. Nessuna causalita'."""
     cfg, R = ctx.rules["overlap"], ctx.royalty
+    set_currency(ctx.currency)
     # aggrega per (campagna, termine): il termine puo' comparire con piu' target nella stessa campagna
     agg: dict = {}
     for s in st_rows:
@@ -124,9 +125,9 @@ def analyze_overlaps(st_rows: list[dict], ctx: BookCtx) -> list[dict]:
                         f"keep {_label(best, group)}")
                     rec["detail"] = ("Possibile inefficienza (nessuna causalita' assunta): "
                                      f"{_label(worst, group)} ACOS {'N/A (0 ordini)' if wa == float('inf') else format(wa, '.1f') + '%'} "
-                                     f"({worst['m'].clicks:g} clic, {worst['m'].orders:g} ordini, spesa ${worst['m'].spend:.2f}, conf {confs[worst['campaign_id']]}) "
+                                     f"({worst['m'].clicks:g} clic, {worst['m'].orders:g} ordini, spesa {sym()}{worst['m'].spend:.2f}, conf {confs[worst['campaign_id']]}) "
                                      f"vs {_label(best, group)} ACOS {ba:.1f}% ({best['m'].clicks:g} clic, {best['m'].orders:g} ordini, "
-                                     f"spesa ${best['m'].spend:.2f}, conf {confs[best['campaign_id']]}). "
+                                     f"spesa {sym()}{best['m'].spend:.2f}, conf {confs[best['campaign_id']]}). "
                                      "Se il termine non coincide col target, il bid change colpirebbe anche altri termini.")
                 else:
                     fails = [n for n, ok in (("gap ACOS non materiale", gap_ok), ("spesa non significativa in entrambe", spend_ok),

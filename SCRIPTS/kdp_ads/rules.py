@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .metrics import Metrics
+from .metrics import Metrics, set_currency, sym
 
 CONF_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
 ACTIONS = ("NO_ACTION", "WATCH", "HOLD", "BID_UP_5_CANDIDATE", "BID_DOWN_5_CANDIDATE", "BID_DOWN_10_CANDIDATE",
@@ -40,6 +40,7 @@ class BookCtx:
     break_even_acos: float
     phase: str          # letta e portata negli output; V1 non varia le regole per fase
     rules: dict
+    file_tag: str = ""  # etichetta dei file di output (book_id, oppure book_id_MP se il libro ha piu' marketplace)
 
     @property
     def bands(self) -> dict:
@@ -52,11 +53,12 @@ class BookCtx:
                 "mild": mild, "unprofitable": unprof}
 
 
-def ctx_from_book(book: dict, eco: dict, rules_base: dict) -> BookCtx:
+def ctx_from_book(book: dict, eco: dict, rules_base: dict, file_tag: str | None = None) -> BookCtx:
+    """`book` e' la VISTA piatta libro+marketplace (registry.book_view): economia del marketplace corretto."""
     rules = deep_merge(rules_base, book.get("rule_overrides"))
     return BookCtx(str(book["book_id"]), book["title"], book["marketplace"], book["currency"],
                    float(book["price"]), float(book["royalty_per_copy"]), float(book["target_acos"]),
-                   float(eco["break_even_acos"]), book["phase"], rules)
+                   float(eco["break_even_acos"]), book["phase"], rules, file_tag or str(book["book_id"]))
 
 
 # ------------------------------------------------------------------ classificazioni
@@ -130,7 +132,7 @@ class Decision:
 
 
 def _money(x):
-    return f"${x:,.2f}"
+    return f"{sym()}{x:,.2f}"
 
 
 def _num(m: Metrics, ctx: BookCtx) -> str:
@@ -145,6 +147,7 @@ def decide(m: Metrics, ctx: BookCtx, report_type: str, action_scope: str = "TARG
     """action_scope: 'TARGET' se il bid change riguarda esattamente questa riga (target, o termine == target);
     'PARENT_TARGET' se la riga e' un search term diverso dal target che l'ha catturato: un bid change
     colpirebbe anche altri termini serviti dallo stesso target."""
+    set_currency(ctx.currency)                  # simbolo di valuta del marketplace nei testi
     R, rules = ctx.royalty, ctx.rules
     z, w, bu = rules["zero_orders"], rules["with_orders"], rules["bid_up"]
     conf = calculate_confidence(m.orders, m.clicks, m.spend, R, rules)

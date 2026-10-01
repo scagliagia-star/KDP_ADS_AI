@@ -1,6 +1,6 @@
 """Dichiara lo SNAPSHOT (tipo di report + intervallo) di un CSV gia' copiato nella cartella campagna, aggiungendolo a
-metadata.json -> snapshots. Non sposta ne' modifica i CSV; non importa nulla (poi: python import_csv.py --dry-run)."""
-import json
+metadata.json -> snapshots. Non sposta ne' modifica i CSV; non importa nulla (poi: python import_csv.py --dry-run).
+La logica e' in kdp_ads.registry.add_snapshot (usata anche dalla dashboard)."""
 import sys
 from pathlib import Path
 
@@ -38,17 +38,17 @@ def main() -> int:
     win = ask("attribution_window (vuoto se non nota)") or None
     if win:
         entry["attribution_window"] = win
-    snaps = [s for s in meta.get("snapshots") or [] if s["file"] != fname]
-    if len(snaps) != len(meta.get("snapshots") or []):
-        if input("Snapshot gia' dichiarato per questo file. Digita SOVRASCRIVI per sostituirlo: ").strip() != "SOVRASCRIVI":
-            print("Annullato.")
-            return 1
-    meta["snapshots"] = snaps + [entry]
-    errs = registry.validate_metadata(meta)
-    if errs:
-        print("ERRORE di validazione:\n  - " + "\n  - ".join(errs))
+    try:
+        try:
+            registry.add_snapshot(folder, entry)
+        except registry.DuplicateError:
+            if input("Snapshot gia' dichiarato per questo file. Digita SOVRASCRIVI per sostituirlo: ").strip() != "SOVRASCRIVI":
+                print("Annullato.")
+                return 1
+            registry.add_snapshot(folder, entry, overwrite=True)
+    except registry.RegistryError as e:
+        print(f"ERRORE di validazione:\n  - {e}")
         return 1
-    (folder / "metadata.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"Snapshot dichiarato: {fname} -> {period_id(scope, d_from, d_to)} ({window_label(scope, d_from, d_to)})")
     print("Prossimo passo: python import_csv.py --dry-run")
     return 0

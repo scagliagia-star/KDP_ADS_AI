@@ -1,6 +1,26 @@
 """Metriche derivate e normalizzazione termini. Nessuna decisione qui."""
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass
+
+_SYMBOLS = {"USD": "$", "GBP": "£", "EUR": "€", "CAD": "CA$", "AUD": "A$"}
+_SYM: ContextVar[str] = ContextVar("currency_symbol", default="$")
+
+
+def currency_symbol(code: str | None) -> str:
+    """Simbolo mostrato accanto agli importi del marketplace (USD $, GBP £, EUR €, ...); altre valute: codice + spazio.
+    Solo presentazione: gli importi non vengono mai convertiti fra valute."""
+    c = str(code or "USD").strip().upper()
+    return _SYMBOLS.get(c, f"{c} ")
+
+
+def set_currency(code: str | None) -> None:
+    _SYM.set(currency_symbol(code))
+
+
+def sym() -> str:
+    return _SYM.get()
+
 
 ESTIMATE_NOTE = ("STIMA: un ordine attribuito ad Amazon Ads non equivale automaticamente a una royalty KDP "
                  "effettivamente maturata (resi, prezzo di vendita, Kindle Unlimited, ecc.). Verificare sui report KDP.")

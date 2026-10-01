@@ -5,13 +5,14 @@ from collections import Counter
 from pathlib import Path
 
 from .decfields import DEC_COLUMNS
+from .metrics import set_currency, sym
 from .report import _cell, _path, _table
 
 INSERT_MARK = "## 2. WINNERS"
 
 
 def write_decisions_csv(ds, out_dir, ts) -> Path:
-    p = _path(out_dir, "decisions", ds.ctx.book_id, ts, "csv")
+    p = _path(out_dir, "decisions", ds.ctx.file_tag or ds.ctx.book_id, ts, "csv")
     with open(p, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=DEC_COLUMNS, extrasaction="ignore")
         w.writeheader()
@@ -38,10 +39,10 @@ def write_decisions_csv(ds, out_dir, ts) -> Path:
 def save_decisions_to_db(conn, ds, csv_path, md_path) -> int:
     with conn:
         cur = conn.execute(
-            "INSERT INTO decision_runs (book_id,generated_at,analysis_run_id,csv_path,md_path,decision_count,accounting_json,warnings_json) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO decision_runs (book_id,generated_at,analysis_run_id,csv_path,md_path,decision_count,accounting_json,warnings_json,marketplace) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (ds.ctx.book_id, ds.generated_at, ds.analysis_run_id, str(csv_path), str(md_path), len(ds.decisions),
-             json.dumps(ds.accounting), json.dumps(ds.all_warnings(), ensure_ascii=False)))
+             json.dumps(ds.accounting), json.dumps(ds.all_warnings(), ensure_ascii=False), ds.ctx.marketplace))
         run_id = cur.lastrowid
         sql = f"INSERT INTO decisions ({','.join(DEC_COLUMNS)}) VALUES ({','.join('?' * len(DEC_COLUMNS))})"
         for d in ds.decisions:
@@ -59,14 +60,14 @@ def _pd(d, pre):
     if all(x is None for x in v):
         return " · al giorno: n/d"
     f = lambda x, n=2: "n/d" if x is None else f"{x:.{n}f}"
-    return f" · al giorno: impr {f(v[0], 1)}, clic {f(v[1])}, spend ${f(v[2])}, ordini {f(v[3])}"
+    return f" · al giorno: impr {f(v[0], 1)}, clic {f(v[1])}, spend {sym()}{f(v[2])}, ordini {f(v[3])}"
 
 
 def _ev(d, pre):
     if d[f"{pre}_clicks"] is None:
         return "n/d"
-    return (f"{d[f'{pre}_clicks']:g} clic, {d[f'{pre}_orders']:g} ordini, spend ${d[f'{pre}_spend']:.2f}, "
-            f"sales ${d[f'{pre}_sales']:.2f}, ACOS {_acos(d[f'{pre}_acos'])}, profit ${d[f'{pre}_estimated_profit']:.2f}" + _pd(d, pre))
+    return (f"{d[f'{pre}_clicks']:g} clic, {d[f'{pre}_orders']:g} ordini, spend {sym()}{d[f'{pre}_spend']:.2f}, "
+            f"sales {sym()}{d[f'{pre}_sales']:.2f}, ACOS {_acos(d[f'{pre}_acos'])}, profit {sym()}{d[f'{pre}_estimated_profit']:.2f}" + _pd(d, pre))
 
 
 def _block(d):
@@ -102,6 +103,7 @@ def _block(d):
 
 def decisions_markdown(ds) -> str:
     D, acc = ds.decisions, ds.accounting
+    set_currency(ds.ctx.currency)
     by_p, by_a = Counter(d["priority"] for d in D), Counter(d["final_action"] for d in D)
     A = []
     A.append("## 1b. CONSOLIDATED DECISIONS\n")
@@ -149,12 +151,12 @@ def decisions_markdown(ds) -> str:
              "l'azione economica sottostante e' conservata. Nulla viene riattivato._\n")
 
     def _ptr(d):
-        life = "n/d" if d["lifetime_clicks"] is None else f"{d['lifetime_clicks']:g}c/{d['lifetime_orders']:g}o/${d['lifetime_spend']:.2f}/ACOS {_acos(d['lifetime_acos'])}"
+        life = "n/d" if d["lifetime_clicks"] is None else f"{d['lifetime_clicks']:g}c/{d['lifetime_orders']:g}o/{sym()}{d['lifetime_spend']:.2f}/ACOS {_acos(d['lifetime_acos'])}"
         rec = []
         if d["tactical_clicks"] is not None:
-            rec.append(f"28D {d['tactical_clicks']:g}c/{d['tactical_orders']:g}o/${d['tactical_spend']:.2f}")
+            rec.append(f"28D {d['tactical_clicks']:g}c/{d['tactical_orders']:g}o/{sym()}{d['tactical_spend']:.2f}")
         if d["recent_clicks"] is not None:
-            rec.append(f"{d['recent_window'] or 'recente'} {d['recent_clicks']:g}c/{d['recent_orders']:g}o/${d['recent_spend']:.2f}")
+            rec.append(f"{d['recent_window'] or 'recente'} {d['recent_clicks']:g}c/{d['recent_orders']:g}o/{sym()}{d['recent_spend']:.2f}")
         return [d["campaign_id"].replace("CHAIR_TAI_CHI_", ""), d["target"], d["target_status"], d["underlying_candidate_action"] or "",
                 life, " / ".join(rec) or "n/d", d["final_action"],
                 "RECENT_SPEND_ON_PAUSED_TARGET" if "RECENT_SPEND_ON_PAUSED_TARGET" in (d["flags"] or "") else "", d["reason"] or ""]
@@ -167,7 +169,7 @@ def decisions_markdown(ds) -> str:
     agree = Counter(d["recommendation_agreement"] for d in D if d["recommendation_agreement"])
     A.append("- Accordo Amazon vs decisione: " + (", ".join(f"{k}: {v}" for k, v in sorted(agree.items())) or "nessuna evidenza Amazon abbinata") + ".")
     for a in ds.amazon_campaign_level:
-        sp = "" if a["observed_spend"] is None else f" spesa ${a['observed_spend']:.2f}"
+        sp = "" if a["observed_spend"] is None else f" spesa {sym()}{a['observed_spend']:.2f}"
         oo = "" if a["observed_orders"] is None else f", {a['observed_orders']:g} acquisti"
         A.append(f"- Livello campagna {a['campaign_id']} [{a['recommendation_type']}/{a['suggested_direction']}] "
                  f"{a['period_from']}→{a['period_to']}:{sp}{oo} — {a['observation'] or ''} {a['suggested_action'] or ''} {a['notes'] or ''}".rstrip())
@@ -194,7 +196,7 @@ def write_combined_markdown(ds, out_dir, ts, analysis_md_path: str | None) -> Pa
     base = None
     if analysis_md_path and Path(analysis_md_path).exists():
         base = Path(analysis_md_path).read_text(encoding="utf-8")
-    p = _path(out_dir, "analysis", ds.ctx.book_id, ts + "_with_decisions", "md")
+    p = _path(out_dir, "analysis", ds.ctx.file_tag or ds.ctx.book_id, ts + "_with_decisions", "md")
     if base and INSERT_MARK in base:
         text = base.replace(INSERT_MARK, section + "\n" + INSERT_MARK, 1)
     else:

@@ -1,10 +1,12 @@
+import logging
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 from .decfields import DEC_FIELDS, STATUSES
 from .recfields import REC_FIELDS
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Colonne di contesto presenti in imports e in ogni riga dati (denormalizzate per filtrare senza JOIN).
 _CTX = """
@@ -41,7 +43,7 @@ CREATE INDEX IF NOT EXISTS ix_amazon_book ON amazon_recommendations(book_id, cam
 CREATE TABLE IF NOT EXISTS decision_runs (
     run_id INTEGER PRIMARY KEY AUTOINCREMENT, book_id TEXT NOT NULL, generated_at TEXT NOT NULL,
     analysis_run_id INTEGER, csv_path TEXT, md_path TEXT, decision_count INTEGER,
-    accounting_json TEXT, warnings_json TEXT
+    accounting_json TEXT, warnings_json TEXT, marketplace TEXT
 );
 
 CREATE TABLE IF NOT EXISTS decisions (
@@ -53,7 +55,8 @@ CREATE INDEX IF NOT EXISTS ix_dec_key ON decisions(action_key);
 CREATE INDEX IF NOT EXISTS ix_dec_status ON decisions(status);
 CREATE TABLE IF NOT EXISTS analysis_runs (
     run_id INTEGER PRIMARY KEY AUTOINCREMENT, book_id TEXT NOT NULL, generated_at TEXT NOT NULL,
-    csv_path TEXT, md_path TEXT, overlaps_csv_path TEXT, row_count INTEGER, warnings_json TEXT, rules_json TEXT
+    csv_path TEXT, md_path TEXT, overlaps_csv_path TEXT, row_count INTEGER, warnings_json TEXT, rules_json TEXT,
+    marketplace TEXT
 );
 
 CREATE TABLE IF NOT EXISTS recommendations (
@@ -68,6 +71,14 @@ CREATE TABLE IF NOT EXISTS books (
     price REAL, royalty_per_copy REAL,
     break_even_acos_configured REAL, break_even_acos_calculated REAL, break_even_acos REAL,
     target_acos REAL, phase TEXT, active INTEGER, synced_at TEXT
+);
+
+-- economia di ogni marketplace del libro (valute e prezzi NON si convertono mai fra marketplace)
+CREATE TABLE IF NOT EXISTS book_marketplaces (
+    book_id TEXT NOT NULL, marketplace TEXT NOT NULL, currency TEXT, price REAL, royalty_per_copy REAL,
+    break_even_acos_configured REAL, break_even_acos_calculated REAL, break_even_acos REAL,
+    target_acos REAL, phase TEXT, active INTEGER, synced_at TEXT,
+    PRIMARY KEY (book_id, marketplace)
 );
 
 CREATE TABLE IF NOT EXISTS campaigns (
@@ -131,6 +142,8 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     conn.executescript(SCHEMA)
     _ensure_columns(conn, "recommendations", REC_FIELDS)     # colonne aggiunte dopo (nullable, righe storiche = NULL)
     _ensure_columns(conn, "decisions", DEC_FIELDS)
+    _ensure_columns(conn, "analysis_runs", [("marketplace", "TEXT")])        # run storici: NULL = marketplace legacy del libro
+    _ensure_columns(conn, "decision_runs", [("marketplace", "TEXT")])
     return conn
 
 
@@ -147,9 +160,36 @@ _PERIOD_SQL = ("CASE WHEN report_scope='LIFETIME' THEN 'LIFETIME__' || COALESCE(
                "ELSE 'UNKNOWN__NA' END")
 
 
+def backup_before_migration(conn, from_version: int) -> Path | None:
+    """Backup versionato del DB PRIMA di una migrazione di schema. Vive nel layer DB: vale per qualunque entrypoint che apra il DB
+    (dashboard, import_csv.py, analyze.py, decide.py, ...). Mai sovrascrive: kdp_ads_pre_schema_v<N>_<data_ora>[_k].db in
+    <cartella del DB>/backups/. Nessun backup per DB in memoria o senza tabelle (DB nuovo). Usa l'API di backup di sqlite (copia
+    consistente)."""
+    row = conn.execute("PRAGMA database_list").fetchone()
+    src = Path(row[2]) if row and row[2] else None
+    if src is None or not src.is_file() or not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1").fetchone():
+        return None
+    dest_dir = src.parent / "backups"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    base = f"kdp_ads_pre_schema_v{SCHEMA_VERSION}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    dest, n = dest_dir / f"{base}.db", 1
+    while dest.exists():
+        n += 1
+        dest = dest_dir / f"{base}_{n}.db"
+    out = sqlite3.connect(str(dest))
+    try:
+        conn.backup(out)
+    finally:
+        out.close()
+    logging.getLogger("kdp_ads.db").warning("Migrazione schema v%s -> v%s: backup creato in %s", from_version, SCHEMA_VERSION, dest)
+    return dest
+
+
 def _upgrade(conn):
     """v1 (mono-libro) -> v2 (multi-book): ricrea le tabelle SOLO se vuote.
-    v2 -> v3 (period snapshot): aggiunge period_id/snapshot_id e li ricalcola dai dati esistenti, SENZA perdere dati."""
+    v2 -> v3 (period snapshot): aggiunge period_id/snapshot_id e li ricalcola dai dati esistenti, SENZA perdere dati.
+    v3 -> v4 (multi-marketplace): colonne/tabella nuove, nessuna riga toccata.
+    Prima di OGNI migrazione di un DB esistente si crea un backup (una volta sola: a schema aggiornato non si ripete)."""
     ver = conn.execute("PRAGMA user_version").fetchone()[0]
     if ver >= SCHEMA_VERSION:
         return
@@ -159,9 +199,11 @@ def _upgrade(conn):
             if t in existing and conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]:
                 raise RuntimeError(f"DB con schema v{ver} contiene dati in '{t}': migrazione manuale necessaria, "
                                    "non ricreo le tabelle.")
+        backup_before_migration(conn, ver)
         for t in _OLD_TABLES:
             conn.execute(f"DROP TABLE IF EXISTS {t}")
     else:
+        backup_before_migration(conn, ver)
         for t in ("imports", "target_rows", "search_term_rows"):
             if t in existing:
                 _ensure_columns(conn, t, [("period_id", "TEXT"), ("snapshot_id", "TEXT")])

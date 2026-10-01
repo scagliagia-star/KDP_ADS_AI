@@ -2,22 +2,20 @@
 READ-ONLY: nessuna chiamata Amazon, nessuna modifica di campagne/bid/budget."""
 import argparse
 import sys
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from kdp_ads.analysis import analyze_book
 from kdp_ads.config import CONFIG_DIR, ROOT, load_mapping, load_settings
-from kdp_ads.db import connect
 from kdp_ads.logs import setup_logger
-from kdp_ads.report import (NON_ACTIONS, save_to_db, write_markdown, write_overlaps_csv, write_recommendations_csv)
-from kdp_ads.rules import load_rules
+from kdp_ads.registry import RegistryError
+from kdp_ads.pipeline import run_analysis
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--book", required=True, help="book_id da analizzare")
+    ap.add_argument("--marketplace", help="marketplace da analizzare (obbligatorio se il libro ne ha piu' di uno)")
     ap.add_argument("--top", type=int, default=10)
     ap.add_argument("--no-db", action="store_true", help="non salvare le raccomandazioni nel DB")
     a = ap.parse_args()
@@ -25,22 +23,15 @@ def main() -> int:
     settings, mapping = load_settings(), load_mapping()
     logger, log_path = setup_logger(settings["logs_dir"], f"analysis_{a.book}")
     logger.info("Analisi avviata (read-only) book=%s", a.book)
-    conn = connect(settings["db_path"])
-    rules_path = CONFIG_DIR / "rules.json"
-    an = analyze_book(conn, settings, mapping, rules_path, a.book, logger)
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out = ROOT / "OUTPUT"
-    csv_p = write_recommendations_csv(an, out / "recommendations", ts)
-    ov_p = write_overlaps_csv(an, out / "recommendations", ts)
-    md_p = write_markdown(an, out / "daily_reports", ts)
-    run_id = None if a.no_db else save_to_db(conn, an, csv_p, md_p, ov_p, an.ctx.rules)
-    logger.info("Output: %s | %s | %s (run_id=%s)", csv_p, ov_p, md_p, run_id)
-    for w in an.warnings:
-        logger.warning(w)
-    print(f"CSV:        {csv_p}\nOverlaps:   {ov_p}\nMarkdown:   {md_p}\nLog:        {log_path}\nrun_id:     {run_id}")
-    print(f"Righe: {len(an.recs)} | overlap: {len(an.overlaps)} | data warnings: {len(an.warnings)}")
-    conn.close()
+    try:
+        r = run_analysis(settings, mapping, CONFIG_DIR / "rules.json", a.book, ROOT / "OUTPUT", logger, save_db=not a.no_db,
+                         marketplace=a.marketplace)
+    except RegistryError as e:                         # es. libro con piu' marketplace senza --marketplace
+        print(f"ERRORE: {e}", file=sys.stderr)
+        return 2
+    print(f"CSV:        {r['csv']}\nOverlaps:   {r['overlaps_csv']}\nMarkdown:   {r['md']}\nLog:        {log_path}\nrun_id:     {r['run_id']}")
+    print(f"Marketplace: {r['marketplace']}")
+    print(f"Righe: {r['rows']} | overlap: {r['overlaps']} | data warnings: {len(r['warnings'])}")
     return 0
 
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from . import amazon as amz
 from .importer import _read_table
 from .mapping import analyze_headers, dedupe_headers
-from .metrics import normalize_term
+from .metrics import normalize_term, sym
 from .parsing import parse_number
 from .snapshots import days_inclusive, period_id, window_label
 
@@ -29,16 +29,18 @@ def _label(t: dict) -> str:
     return f"Search Term recente {t['period_id']}"
 
 
-def audit_book(conn, book_id: str, rules: dict, mapping: dict, royalty: float) -> dict:
+def audit_book(conn, book_id: str, rules: dict, mapping: dict, royalty: float, marketplace: str | None = None) -> dict:
     """Ricalcola i totali dal DB per campagna/report/SNAPSHOT e confronta con i valori dichiarati nei CSV.
     Ritorna {'totals': [...], 'warnings': [...], 'amazon_pending': [...]}."""
     a = rules["audit"]
+    mpf = " AND UPPER(marketplace)=?" if marketplace else ""
+    mpa = (str(marketplace).upper(),) if marketplace else ()
     warnings, totals = [], []
     for table, rt in _TABLES:
         for r in conn.execute(
                 f"SELECT campaign_id,campaign_type,report_scope,date_from,date_to,period_id,COUNT(*) n,SUM(impressions) i,SUM(clicks) c,"
-                f"SUM(spend) s,SUM(orders) o,SUM(sales) v FROM {table} WHERE book_id=? "
-                f"GROUP BY campaign_id, report_scope, date_from, date_to ORDER BY campaign_id, date_to, date_from", (book_id,)):
+                f"SUM(spend) s,SUM(orders) o,SUM(sales) v FROM {table} WHERE book_id=?{mpf} "
+                f"GROUP BY campaign_id, report_scope, date_from, date_to ORDER BY campaign_id, date_to, date_from", (book_id, *mpa)):
             i, c, s, o, v = (r[k] or 0 for k in ("i", "c", "s", "o", "v"))
             pid = r["period_id"] or period_id(r["report_scope"], r["date_from"], r["date_to"])
             days = days_inclusive(r["date_from"], r["date_to"]) if r["report_scope"] == "DATE_RANGE" else None
@@ -56,7 +58,7 @@ def audit_book(conn, book_id: str, rules: dict, mapping: dict, royalty: float) -
         bad = {"ACOS": [], "CTR": [], "CPC": []}
         sel = "search_term" if rt == "SEARCH_TERM" else "NULL AS search_term"
         for r in conn.execute(f"SELECT campaign_id,target,{sel},impressions,clicks,spend,sales,acos_reported_pct,ctr_reported_pct,"
-                              f"cpc_reported FROM {table} WHERE book_id=?", (book_id,)):
+                              f"cpc_reported FROM {table} WHERE book_id=?{mpf}", (book_id, *mpa)):
             if r["acos_reported_pct"] is not None and r["sales"]:
                 if abs(r["spend"] / r["sales"] * 100 - r["acos_reported_pct"]) > a["acos_tol_pp"]:
                     bad["ACOS"].append(r)
@@ -72,7 +74,7 @@ def audit_book(conn, book_id: str, rules: dict, mapping: dict, royalty: float) -
                                 f"(es. campagna {rows[0]['campaign_id']}, target {rows[0]['target']!r})")
 
     # integrita' DB <-> import <-> file CSV sorgente
-    for imp in conn.execute("SELECT * FROM imports WHERE book_id=?", (book_id,)):
+    for imp in conn.execute(f"SELECT * FROM imports WHERE book_id=?{mpf}", (book_id, *mpa)):
         tbl = "search_term_rows" if imp["report_type"] == "SEARCH_TERM" else "target_rows"
         got = conn.execute(f"SELECT COUNT(*) n,SUM(clicks) c,SUM(spend) s,SUM(orders) o,SUM(sales) v FROM {tbl} WHERE import_id=?",
                            (imp["import_id"],)).fetchone()
@@ -120,8 +122,12 @@ def audit_book(conn, book_id: str, rules: dict, mapping: dict, royalty: float) -
     # osservazioni Amazon a livello campagna: confronto con i totali Target dello STESSO intervallo, se importato
     cfg = rules.get("amazon_compare", {})
     pending = []
+    mp_campaigns = {t["campaign_id"] for t in totals}
+    if marketplace:                                            # osservazioni Amazon: solo campagne di QUESTO marketplace
+        mp_campaigns |= {r["campaign_id"] for r in conn.execute(
+            "SELECT campaign_id FROM campaigns WHERE book_id=? AND UPPER(marketplace)=?", (book_id, str(marketplace).upper()))}
     for ar in amz.load(conn, book_id):
-        if ar["target_normalized"] or ar["observed_spend"] is None:
+        if ar["target_normalized"] or ar["observed_spend"] is None or (marketplace and ar["campaign_id"] not in mp_campaigns):
             continue
         same = [t for t in totals if t["campaign_id"] == ar["campaign_id"] and t["report_type"] == "TARGETING"
                 and t["report_scope"] == "DATE_RANGE" and t["date_from"] == ar["period_from"] and t["date_to"] == ar["period_to"]]
@@ -132,8 +138,8 @@ def audit_book(conn, book_id: str, rules: dict, mapping: dict, royalty: float) -
         tol = max(cfg.get("spend_abs_tol_usd", 1.0), cfg.get("spend_rel_tol", 0.10) * max(t["spend"], ar["observed_spend"]))
         if abs(t["spend"] - ar["observed_spend"]) > tol:
             warnings.append(f"DATA_WARNING {ar['campaign_id']} {ar['period_from']}→{ar['period_to']}: spesa Target importata "
-                            f"${t['spend']:.2f} differisce materialmente dall'osservazione Amazon ${ar['observed_spend']:.2f} "
-                            f"(tolleranza ${tol:.2f})")
+                            f"{sym()}{t['spend']:.2f} differisce materialmente dall'osservazione Amazon {sym()}{ar['observed_spend']:.2f} "
+                            f"(tolleranza {sym()}{tol:.2f})")
         if ar["observed_orders"] is not None and abs(t["orders"] - ar["observed_orders"]) > cfg.get("orders_abs_tol", 0.5):
             warnings.append(f"DATA_WARNING {ar['campaign_id']} {ar['period_from']}→{ar['period_to']}: ordini Target importati "
                             f"{t['orders']:g} differiscono dall'osservazione Amazon {ar['observed_orders']:g}")

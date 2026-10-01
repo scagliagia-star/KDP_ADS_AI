@@ -141,7 +141,8 @@ class MultiSnapshotImportTests(SBase):
         self.conn.commit()
         self.conn.close()
         self.conn = connect(self.settings["db_path"])
-        self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], 3)
+        from kdp_ads.db import SCHEMA_VERSION
+        self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
         self.assertEqual({r[0] for r in self.conn.execute("SELECT period_id FROM imports")}, {"LIFETIME__2026-09-30", "2026-07-28__2026-09-30"})
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM target_rows WHERE period_id='LIFETIME__2026-09-30'").fetchone()[0], 1)
         self.assertEqual(self.count("search_term_rows"), 1)

@@ -44,7 +44,8 @@ def record(conn, rec: dict, settings: dict) -> int:
     book_id, campaign_id = str(r.get("book_id", "")).strip(), str(r.get("campaign_id", "")).strip()
     if book_id not in registry.load_books(settings["books_path"]):
         raise AmazonRecError(f"book_id {book_id!r} non presente in books.json")
-    if not (Path(settings["input_dir"]) / book_id / campaign_id / "metadata.json").exists():
+    folder = registry.find_campaign_dir(settings["input_dir"], book_id, campaign_id)       # struttura legacy o per marketplace
+    if folder is None or not (folder / "metadata.json").exists():
         raise AmazonRecError(f"campagna {book_id}/{campaign_id} non registrata (metadata.json mancante)")
     pf, pt = _d(r.get("period_from"), "period_from"), _d(r.get("period_to"), "period_to")
     if pf > pt:

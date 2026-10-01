@@ -317,7 +317,16 @@ class InheritedWarningsTests(DBase):
 
     @staticmethod
     def stable(ds):
-        return [{k: v for k, v in d.items() if k not in ("generated_at", "run_id")} for d in ds.decisions]
+        """Solo i campi deterministici. Si escludono i soli valori derivati dall'orologio (generated_at, status_updated_at, il
+        prefisso data/ora di decision_id): due costruzioni a cavallo di un secondo non devono cambiare l'esito del confronto.
+        La parte progressiva di decision_id (-0001, -0002, ...) resta confrontata, cosi' l'ordine delle decisioni e' verificato."""
+        clock = ("generated_at", "run_id", "status_updated_at", "decision_id")
+        out = []
+        for d in ds.decisions:
+            row = {k: v for k, v in d.items() if k not in clock}
+            row["decision_seq"] = d["decision_id"].rsplit("-", 1)[-1]
+            out.append(row)
+        return out
 
     def test_all_analysis_warnings_inherited_and_separated(self):
         self.prep(self.DATA)

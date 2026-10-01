@@ -3,8 +3,15 @@ import re
 from dataclasses import dataclass, field
 
 
+CURRENCY_CODES = ("USD", "EUR", "GBP", "CAD", "MXN", "JPY", "AUD", "INR", "BRL", "SEK", "PLN", "TRY", "AED", "SAR", "SGD")
+_CURRENCY_SUFFIX = re.compile(r"\s*\((?:" + "|".join(CURRENCY_CODES) + r")\)\s*$", re.I)
+
+
 def norm(h: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", (h or "").lower())
+    """Normalizza un header per il confronto con gli alias. Il suffisso di valuta '(USD)', '(GBP)', '(EUR)' ... viene ignorato:
+    gli header dei report variano con la valuta del marketplace ('Costo totale (GBP)'), la colonna e' la stessa. Un header con
+    una valuta diversa da quella del marketplace viene rifiutato dall'importer (controllo separato)."""
+    return re.sub(r"[^a-z0-9]", "", _CURRENCY_SUFFIX.sub("", h or "").lower())
 
 
 def dedupe_headers(headers: list[str]) -> tuple[list[str], list[str]]:

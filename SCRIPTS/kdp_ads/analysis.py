@@ -22,25 +22,32 @@ class Analysis:
     campaigns: dict = field(default_factory=dict)
 
 
-def _load(conn, table, book_id):
-    return [dict(r) for r in conn.execute(f"SELECT * FROM {table} WHERE book_id=? ORDER BY campaign_id, id", (book_id,))]
+def _load(conn, table, book_id, marketplace=None):
+    """Righe di un libro; con `marketplace` SOLO quelle di quel marketplace (mai mescolare marketplace diversi)."""
+    sql, args = f"SELECT * FROM {table} WHERE book_id=?", [book_id]
+    if marketplace:
+        sql, args = sql + " AND UPPER(marketplace)=?", args + [str(marketplace).upper()]
+    return [dict(r) for r in conn.execute(sql + " ORDER BY campaign_id, id", args)]
 
 
-def analyze_book(conn, settings: dict, mapping: dict, rules_path, book_id: str, logger=None) -> Analysis:
+def analyze_book(conn, settings: dict, mapping: dict, rules_path, book_id: str, logger=None, marketplace=None) -> Analysis:
+    """Analizza UN marketplace del libro. `marketplace` puo' mancare solo se il libro ne ha uno."""
     books = registry.load_books(settings["books_path"])
     if book_id not in books:
         raise registry.RegistryError(f"book_id {book_id} non presente in books.json")
-    book = books[book_id]
+    full = books[book_id]
+    book = registry.book_view(full, marketplace)                       # economia (prezzo, royalty, ACOS) del marketplace corretto
     errs = registry.validate_book(book)
     if errs:
-        raise registry.RegistryError(f"libro {book_id} non valido: {'; '.join(errs)}")
+        raise registry.RegistryError(f"libro {book_id} ({book['marketplace']}) non valido: {'; '.join(errs)}")
     eco, book_warns = registry.book_economics(book, settings.get("break_even_mismatch_tolerance_pp", 0.5))
-    ctx = ctx_from_book(book, eco, load_rules(rules_path))
+    ctx = ctx_from_book(book, eco, load_rules(rules_path), registry.file_tag(full, book["marketplace"]))
     now = datetime.now().isoformat(timespec="seconds")
     an = Analysis(ctx=ctx, generated_at=now)
     an.warnings += [f"DATA_WARNING {w}" for w in book_warns]
 
-    trows, srows = _load(conn, "target_rows", book_id), _load(conn, "search_term_rows", book_id)
+    mp = ctx.marketplace
+    trows, srows = _load(conn, "target_rows", book_id, mp), _load(conn, "search_term_rows", book_id, mp)
     snap_cfg = ctx.rules["snapshots"]
     comparable = defaultdict(set)      # campagna -> {(date_from, date_to)} presenti sia come Target che come Search Term
     tp = {(r["campaign_id"], r["date_from"], r["date_to"]) for r in trows if r["report_scope"] == "DATE_RANGE"}
@@ -54,7 +61,7 @@ def analyze_book(conn, settings: dict, mapping: dict, rules_path, book_id: str, 
         r["_days"] = days_inclusive(r["date_from"], r["date_to"]) if r["report_scope"] == "DATE_RANGE" else None
         r["_comparable"] = int(r["report_scope"] == "DATE_RANGE" and (r["date_from"], r["date_to"]) in comparable[r["campaign_id"]])
 
-    an.audit = audit_book(conn, book_id, ctx.rules, mapping, ctx.royalty)
+    an.audit = audit_book(conn, book_id, ctx.rules, mapping, ctx.royalty, mp)
     an.warnings += an.audit["warnings"] + duplicate_key_warnings(trows, srows)
     for r in trows + srows:
         if r["orders"] and not r["sales"]:
@@ -88,7 +95,7 @@ def analyze_book(conn, settings: dict, mapping: dict, rules_path, book_id: str, 
             d = decide(m, ctx, rt, scope, avg_cvr.get((r["campaign_id"], kind, r["period_id"])))
             sig, sig_detail = signals.get((kind, r["id"]), ("UNKNOWN", "nessun confronto verificabile"))
             rec = {
-                "run_id": None, "generated_at": now, "book_id": ctx.book_id, "title": ctx.title,
+                "run_id": None, "generated_at": now, "book_id": ctx.book_id, "marketplace": ctx.marketplace, "title": ctx.title,
                 "campaign_id": r["campaign_id"], "campaign_name": r["campaign_name"], "campaign_type": r["campaign_type"],
                 "report_type": rt, "report_scope": r["report_scope"], "date_from": r["date_from"], "date_to": r["date_to"],
                 "target": r["target"], "search_term": r.get("search_term"), "match_type": r["match_type"],

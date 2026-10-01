@@ -34,14 +34,24 @@ def main() -> int:
     if not book:
         print(f"ERRORE: book_id {book_id} non presente in books.json (usa prima add_book.py).")
         return 1
-    campaign_id = ask("campaign_id (nome cartella, es. CHAIR_TAI_CHI_EXACT)")
+    mps = registry.marketplaces_of(book)
+    if not mps:
+        print("ERRORE: il libro non ha marketplace configurati (aggiungine uno dalla dashboard: Gestione libri).")
+        return 1
+    mp = ask(f"marketplace {list(mps)}", next(iter(mps)) if len(mps) == 1 else None).upper()
+    try:
+        view = registry.book_view(book, mp)
+    except registry.RegistryError as e:
+        print(f"ERRORE: {e}")
+        return 1
+    campaign_id = ask("campaign_id (nome cartella, es. CHAIR_TAI_CHI_EXACT; unico nel libro)")
     meta = {
         "book_id": book_id,
         "campaign_id": campaign_id,
         "campaign_name": ask("campaign_name", campaign_id),
         "campaign_type": ask("campaign_type (es. EXACT, PHRASE, COMPETITOR, AUTO, ...)").upper(),
-        "marketplace": ask("marketplace", book["marketplace"]),
-        "currency": ask("currency", book["currency"]),
+        "marketplace": mp,
+        "currency": ask("currency", view["currency"]),
     }
     for prefix, dflt in (("target", "LIFETIME"), ("search_term", "DATE_RANGE")):
         scope, d_from, d_to = ask_scope(prefix, dflt)

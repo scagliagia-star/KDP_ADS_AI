@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-from .mapping import analyze_headers, dedupe_headers, MappingResult
+from .mapping import CURRENCY_CODES, analyze_headers, dedupe_headers, MappingResult
 from .parsing import parse_number, parse_ratio_pct, parse_date, ParseError
 from . import registry
 from .snapshots import period_id as make_period_id, snapshot_id as make_snapshot_id
@@ -18,7 +18,7 @@ from .snapshots import period_id as make_period_id, snapshot_id as make_snapshot
 NUMERIC = ["impressions", "clicks", "spend", "sales", "orders", "units", "bid",
            "cpc_reported", "roas_reported"]
 RATIOS = ["acos_reported", "ctr_reported", "conv_rate_reported"]   # frazioni con virgola decimale nei report IT
-CURRENCIES = {"USD", "EUR", "GBP", "CAD", "MXN", "JPY", "AUD", "INR", "BRL", "SEK", "PLN", "TRY", "AED", "SAR", "SGD"}
+CURRENCIES = set(CURRENCY_CODES)
 TOLERANCE_PP = 0.5   # coerenza dei rapporti dichiarati (punti percentuali)
 
 CTX_COLS = ["book_id", "campaign_id", "campaign_name", "campaign_type", "marketplace", "currency",
@@ -271,7 +271,23 @@ def _reject(res: FileResult, tag: str, logger) -> FileResult:
 
 
 # ------------------------------------------------------------------ scansione INPUT
-def _sync_book(conn, book, eco):
+def _sync_book(conn, full, view, eco):
+    """Salva l'economia del marketplace in book_marketplaces; la riga `books` (legacy, una per libro) riflette il marketplace
+    principale. L'economia di marketplace diversi non si mescola e non si converte."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute(
+        """INSERT INTO book_marketplaces (book_id,marketplace,currency,price,royalty_per_copy,break_even_acos_configured,
+           break_even_acos_calculated,break_even_acos,target_acos,phase,active,synced_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(book_id,marketplace) DO UPDATE SET currency=excluded.currency, price=excluded.price,
+           royalty_per_copy=excluded.royalty_per_copy, break_even_acos_configured=excluded.break_even_acos_configured,
+           break_even_acos_calculated=excluded.break_even_acos_calculated, break_even_acos=excluded.break_even_acos,
+           target_acos=excluded.target_acos, phase=excluded.phase, active=excluded.active, synced_at=excluded.synced_at""",
+        (str(view["book_id"]), view["marketplace"], view["currency"], float(view["price"]), float(view["royalty_per_copy"]),
+         eco["break_even_acos_configured"], eco["break_even_acos_calculated"], eco["break_even_acos"], float(view["target_acos"]),
+         view["phase"], 1 if view.get("active", True) else 0, now))
+    if view["marketplace"] != registry.primary_marketplace(full):
+        conn.execute("INSERT OR IGNORE INTO books (book_id,title,synced_at) VALUES (?,?,?)", (str(view["book_id"]), view["title"], now))
+        return
     conn.execute(
         """INSERT INTO books (book_id,title,marketplace,currency,price,royalty_per_copy,break_even_acos_configured,
            break_even_acos_calculated,break_even_acos,target_acos,phase,active,synced_at)
@@ -281,10 +297,9 @@ def _sync_book(conn, book, eco):
            break_even_acos_configured=excluded.break_even_acos_configured,
            break_even_acos_calculated=excluded.break_even_acos_calculated, break_even_acos=excluded.break_even_acos,
            target_acos=excluded.target_acos, phase=excluded.phase, active=excluded.active, synced_at=excluded.synced_at""",
-        (str(book["book_id"]), book["title"], book["marketplace"], book["currency"], float(book["price"]),
-         float(book["royalty_per_copy"]), eco["break_even_acos_configured"], eco["break_even_acos_calculated"],
-         eco["break_even_acos"], float(book["target_acos"]), book["phase"], 1 if book.get("active", True) else 0,
-         datetime.now().isoformat(timespec="seconds")))
+        (str(view["book_id"]), view["title"], view["marketplace"], view["currency"], float(view["price"]),
+         float(view["royalty_per_copy"]), eco["break_even_acos_configured"], eco["break_even_acos_calculated"],
+         eco["break_even_acos"], float(view["target_acos"]), view["phase"], 1 if view.get("active", True) else 0, now))
 
 
 def _sync_campaign(conn, meta):
@@ -301,12 +316,14 @@ def _sync_campaign(conn, meta):
 
 def import_all(conn, settings, mapping, logger, only_book: str | None = None,
                only_campaign: str | None = None, dry_run: bool = False,
-               notes: list | None = None) -> list[FileResult]:
-    """Scansiona INPUT/<BOOK_ID>/<CAMPAIGN_ID>/ . Ogni cartella campagna e' validata con il suo metadata.json."""
+               notes: list | None = None, only_file: str | None = None, only_marketplace: str | None = None) -> list[FileResult]:
+    """Scansiona INPUT/<BOOK_ID>/<CAMPAIGN_ID>/ (struttura legacy) e INPUT/<BOOK_ID>/<MARKETPLACE>/<CAMPAIGN_ID>/. Ogni campagna e'
+    validata con il suo metadata.json e importata con l'economia (valuta, prezzo, royalty) del SUO marketplace."""
     results: list[FileResult] = []
     books = registry.load_books(settings["books_path"])
     base = Path(settings["input_dir"])
     tol = settings.get("break_even_mismatch_tolerance_pp", 0.5)
+    want_mp = str(only_marketplace).strip().upper() if only_marketplace else None
 
     def rejected(name, book_id, campaign_id, problems):
         r = FileResult(filename=name, status="REJECTED", book_id=book_id, campaign_id=campaign_id, problems=problems)
@@ -317,40 +334,68 @@ def import_all(conn, settings, mapping, logger, only_book: str | None = None,
         bid = book_dir.name
         if only_book and bid != only_book:
             continue
-        book = books.get(bid)
-        book_eco, book_warns = None, []
-        if book:
-            berrs = registry.validate_book(book)
-            if berrs:
-                book = None
-                book_problem = [f"libro '{bid}' in books.json non valido: " + "; ".join(berrs)]
-            else:
-                book_eco, book_warns = registry.book_economics(book, tol)
-                for w in book_warns:
-                    logger.warning(w)
-                    if notes is not None:
-                        notes.append(w)
-                if not dry_run:
-                    _sync_book(conn, book, book_eco)
-                conn.commit()
-        for camp_dir in sorted(p for p in book_dir.iterdir() if p.is_dir()):
-            cid = camp_dir.name
+        full = books.get(bid)
+        mps, book_problem = {}, None
+        if full is not None:
+            try:
+                mps = registry.marketplaces_of(full)
+            except registry.RegistryError as e:
+                book_problem = [f"libro '{bid}' in books.json non valido: {e}"]
+        cache: dict = {}
+
+        def view_for(mp):
+            """(vista, problemi, economia) del marketplace; validazione e sync una sola volta per marketplace."""
+            if mp not in cache:
+                v = mps[mp]
+                errs = registry.validate_book(v)
+                if errs:
+                    cache[mp] = (None, [f"libro '{bid}' marketplace {mp} in books.json non valido: " + "; ".join(errs)], None)
+                else:
+                    eco, warns = registry.book_economics(v, tol)
+                    for w in warns:
+                        logger.warning(w)
+                        if notes is not None:
+                            notes.append(w)
+                    if not dry_run:
+                        _sync_book(conn, full, v, eco)
+                        conn.commit()
+                    cache[mp] = (v, [], eco)
+            return cache[mp]
+        seen_ids: dict = {}
+        for loc in registry.iter_campaigns(base, bid, full):
+            cid = loc.campaign_id
             if only_campaign and cid != only_campaign:
                 continue
-            csvs = sorted(camp_dir.glob("*.csv"))
-            if book is None:
-                probs = book_problem if bid in books else [f"book_id '{bid}' (cartella) non presente in books.json"]
+            if want_mp and loc.marketplace and loc.marketplace != want_mp:
+                continue
+            csvs = sorted(loc.path.glob("*.csv"))
+            if only_file:
+                csvs = [f for f in csvs if f.name == only_file]
+            if full is None or book_problem:
+                probs = book_problem or [f"book_id '{bid}' (cartella) non presente in books.json"]
                 for f in csvs or [Path("(cartella)")]:
                     rejected(f.name, bid, cid, probs)
                 continue
-            meta, errs = registry.load_metadata(camp_dir)
+            meta, errs = registry.load_metadata(loc.path)
             if meta is not None and not errs:
-                errs = registry.check_campaign_against_book(meta, book, bid, cid)
+                errs = registry.check_campaign_against_book(meta, full, bid, cid, loc.marketplace)
+            if meta is not None and not errs:
+                mp_here = str(meta["marketplace"]).strip().upper()
+                if seen_ids.setdefault(cid, mp_here) != mp_here:
+                    errs = [f"campaign_id {cid} usato in due marketplace ({seen_ids[cid]} e {mp_here}): gli ID campagna sono unici nel libro"]
             if errs:
                 for f in csvs or [Path("(cartella)")]:
                     rejected(f.name, bid, cid, list(errs))
                 continue
-            if not book.get("active", True):
+            mp = str(meta["marketplace"]).strip().upper()
+            if want_mp and mp != want_mp:
+                continue
+            view, vprobs, _eco = view_for(mp)
+            if view is None:
+                for f in csvs or [Path("(cartella)")]:
+                    rejected(f.name, bid, cid, list(vprobs))
+                continue
+            if not view.get("active", True):
                 for f in csvs:
                     r = FileResult(filename=f.name, status="SKIPPED_INACTIVE", book_id=bid, campaign_id=cid,
                                    campaign_type=meta["campaign_type"], warnings=["libro non attivo (active=false)"])
@@ -361,6 +406,5 @@ def import_all(conn, settings, mapping, logger, only_book: str | None = None,
                 _sync_campaign(conn, meta)
                 conn.commit()
             for f in csvs:
-                r = import_file(conn, f, book, meta, settings, mapping, logger, dry_run=dry_run)
-                results.append(r)
+                results.append(import_file(conn, f, view, meta, settings, mapping, logger, dry_run=dry_run))
     return results

@@ -4,7 +4,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from .metrics import ESTIMATE_NOTE
+from .metrics import ESTIMATE_NOTE, set_currency, sym
 from .recfields import REC_COLUMNS
 
 NON_ACTIONS = ("NO_ACTION", "HOLD", "WATCH", "INSUFFICIENT_DATA")
@@ -39,7 +39,7 @@ def _fmt(v, nd=2):
 
 # ------------------------------------------------------------------ CSV
 def write_recommendations_csv(an, out_dir, ts) -> Path:
-    p = _path(out_dir, "recommendations", an.ctx.book_id, ts, "csv")
+    p = _path(out_dir, "recommendations", an.ctx.file_tag or an.ctx.book_id, ts, "csv")
     with open(p, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=REC_COLUMNS, extrasaction="ignore")
         w.writeheader()
@@ -55,7 +55,7 @@ def write_recommendations_csv(an, out_dir, ts) -> Path:
 
 
 def write_overlaps_csv(an, out_dir, ts) -> Path:
-    p = _path(out_dir, "cross_campaign_overlaps", an.ctx.book_id, ts, "csv")
+    p = _path(out_dir, "cross_campaign_overlaps", an.ctx.file_tag or an.ctx.book_id, ts, "csv")
     cols = ["book_id", "period_id", "search_term", "overlap_classification", "possible_inefficiency", "better_campaign",
             "worse_campaign", "recommendation", "detail", "campaign_id", "campaign_type", "clicks", "cpc", "orders",
             "conversion_rate", "spend", "sales", "acos", "estimated_direct_ad_profit"]
@@ -83,10 +83,10 @@ def write_overlaps_csv(an, out_dir, ts) -> Path:
 def save_to_db(conn, an, csv_path, md_path, ov_path, rules) -> int:
     with conn:
         cur = conn.execute(
-            "INSERT INTO analysis_runs (book_id,generated_at,csv_path,md_path,overlaps_csv_path,row_count,warnings_json,rules_json) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO analysis_runs (book_id,generated_at,csv_path,md_path,overlaps_csv_path,row_count,warnings_json,rules_json,marketplace) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (an.ctx.book_id, an.generated_at, str(csv_path), str(md_path), str(ov_path), len(an.recs),
-             json.dumps(an.warnings, ensure_ascii=False), json.dumps(rules, ensure_ascii=False)))
+             json.dumps(an.warnings, ensure_ascii=False), json.dumps(rules, ensure_ascii=False), an.ctx.marketplace))
         run_id = cur.lastrowid
         sql = f"INSERT INTO recommendations ({','.join(REC_COLUMNS)}) VALUES ({','.join('?' * len(REC_COLUMNS))})"
         for r in an.recs:
@@ -120,7 +120,9 @@ def _row(r):
             r["recommended_action"], r["priority"]]
 
 
-ROW_HEAD = ["Campaign", "Target", "Search term", "Clicks", "Orders", "Spend $", "Sales $", "ACOS", "Est. profit $",
+def _row_head():
+    s = sym().strip()
+    return ["Campaign", "Target", "Search term", "Clicks", "Orders", f"Spend {s}", f"Sales {s}", "ACOS", f"Est. profit {s}",
             "Conf", "Signal", "Action", "P"]
 
 
@@ -133,7 +135,8 @@ def _totals_line(t, ctx):
 
 def write_markdown(an, out_dir, ts) -> Path:
     ctx, recs = an.ctx, an.recs
-    p = _path(out_dir, "analysis", ctx.book_id, ts, "md")
+    set_currency(ctx.currency)
+    p = _path(out_dir, "analysis", ctx.file_tag or ctx.book_id, ts, "md")
     L = []
     A = L.append
     A(f"# KDP Ads analysis — {ctx.title}\n")
@@ -144,12 +147,13 @@ def write_markdown(an, out_dir, ts) -> Path:
       f"- **Phase:** {ctx.phase}\n- **Price:** {ctx.price:.2f} {ctx.currency}\n- **Royalty per copy:** {ctx.royalty:.2f} {ctx.currency}\n"
       f"- **Target ACOS:** {ctx.target_acos:g}% (obiettivo operativo)\n- **Break-even ACOS:** {ctx.break_even_acos:g}% (limite economico teorico)\n")
 
-    heads = ["Campaign", "Impr.", "Clicks", "Spend $", "Orders", "Sales $", "ACOS", "ROAS", "Est. royalty $", "Est. direct ad profit $"]
+    cs = sym().strip()
+    heads = ["Campaign", "Impr.", "Clicks", f"Spend {cs}", "Orders", f"Sales {cs}", "ACOS", "ROAS", f"Est. royalty {cs}", f"Est. direct ad profit {cs}"]
     A("## CAMPAIGN SUMMARY\n")
     A("> **I due dataset NON sono periodi equivalenti e NON vengono sommati tra loro.** Il Targeting e' LIFETIME; il Search Term "
       "copre solo un intervallo recente e ne e' (per costruzione) un sottoinsieme.\n")
     A("> Ogni **snapshot** (report + intervallo) e' un dataset a se': snapshot con finestre diverse coesistono e non vengono mai sommati.\n")
-    pd_heads = heads + ["Impr./day", "Clicks/day", "Spend/day $", "Orders/day"]
+    pd_heads = heads + ["Impr./day", "Clicks/day", f"Spend/day {cs}", "Orders/day"]
 
     def _pd(t, k, nd=2):
         return "n/d" if t.get(k) is None else f"{t[k]:.{nd}f}"
@@ -189,20 +193,20 @@ def write_markdown(an, out_dir, ts) -> Path:
         A("**Azioni a priorita' P1/P2 (candidate, da valutare manualmente):**\n")
         for r in acts[:10]:
             A(f"- **{r['priority']} {r['recommended_action']}** — {r['campaign_id']} · {r['target'] or ''}"
-              f"{' → ' + r['search_term'] if r['search_term'] else ''}: spend ${r['spend']:.2f}, {r['orders']:g} ordini, "
-              f"ACOS {_acos(r['acos'])}, est. profit ${r['estimated_direct_ad_profit']:.2f}, conf {r['confidence']}")
+              f"{' → ' + r['search_term'] if r['search_term'] else ''}: spend {sym()}{r['spend']:.2f}, {r['orders']:g} ordini, "
+              f"ACOS {_acos(r['acos'])}, est. profit {sym()}{r['estimated_direct_ad_profit']:.2f}, conf {r['confidence']}")
         A("")
 
     for title, classes in SECTIONS:
         rows = [r for r in recs if r["rule_classification"] in classes]
         A(f"## {title} ({len(rows)})\n")
-        A(_table(ROW_HEAD, [_row(r) for r in rows]))
+        A(_table(_row_head(), [_row(r) for r in rows]))
 
     prod = [r for r in recs if r["target_type"] == "PRODUCT_TARGET"]
     A(f"## 10. PRODUCT TARGETS ({len(prod)})\n")
     A("_Riferimento trasversale (le stesse righe compaiono anche nella sezione di classe). Gli ASIN restano ASIN: "
       "nessuna trasformazione in keyword._\n")
-    A(_table(ROW_HEAD, [_row(r) for r in prod]))
+    A(_table(_row_head(), [_row(r) for r in prod]))
 
     A(f"## 11. CROSS-CAMPAIGN OVERLAPS ({len(an.overlaps)})\n")
     A("_Stesso search term normalizzato in >=2 campagne dello stesso libro. `CROSS_CAMPAIGN_OVERLAP` non implica cannibalizzazione ne' causalita'. "
@@ -213,7 +217,7 @@ def write_markdown(an, out_dir, ts) -> Path:
                  _cell(c["m"].cpc and f"{c['m'].cpc:.2f}"), f"{c['m'].orders:g}",
                  _cell(c["m"].cvr is not None and f"{c['m'].cvr:.1f}%"), f"{c['m'].spend:.2f}", f"{c['m'].sales:.2f}",
                  _acos(c["m"].acos), f"{c['m'].est_profit:.2f}"] for c in o["campaigns"]]
-        A(_table(["Campaign", "Clicks", "CPC $", "Orders", "CVR", "Spend $", "Sales $", "ACOS", "Est. profit $"], rows))
+        A(_table(["Campaign", "Clicks", f"CPC {cs}", "Orders", "CVR", f"Spend {cs}", f"Sales {cs}", "ACOS", f"Est. profit {cs}"], rows))
         if o["recommendation"]:
             A(f"**Recommendation:** {o['recommendation']}\n")
         A(f"{o['detail']}\n")
