@@ -15,7 +15,7 @@ camps = ctx.repo.campaign_overview(ctx.book["book_id"], ctx.book.get("royalty_pe
 if not camps:
     st.info("Nessun dato di campagna importato.")
     st.stop()
-st.caption("Storico completo, ultimi 65 giorni e ultimi 28 giorni sono snapshot distinti e sovrapposti: sono mostrati affiancati, mai sommati. "
+st.caption("Storico completo, ultimi 65 giorni e ultimi 30 giorni sono snapshot distinti e sovrapposti: sono mostrati affiancati, mai sommati. "
            "Profitto = stima diretta (ordini × royalty − spesa).")
 for c in camps:
     with st.container(border=True):

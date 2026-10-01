@@ -8,7 +8,7 @@ from .audit import audit_book, duplicate_key_warnings
 from .crosscampaign import analyze_overlaps_by_period, build_signals
 from .metrics import ESTIMATE_NOTE, compute_metrics, normalize_term, target_type, term_matches_target
 from .rules import CONF_ORDER, BookCtx, ctx_from_book, decide, load_rules, priority
-from .snapshots import days_inclusive, period_id as make_period_id, per_day, window_label, window_role
+from .snapshots import SAME_CONTENT_DIFFERENT_PERIOD, SAME_CONTENT_MESSAGE, days_inclusive, period_id as make_period_id, per_day, window_label, window_role
 
 
 @dataclass
@@ -28,6 +28,19 @@ def _load(conn, table, book_id, marketplace=None):
     if marketplace:
         sql, args = sql + " AND UPPER(marketplace)=?", args + [str(marketplace).upper()]
     return [dict(r) for r in conn.execute(sql + " ORDER BY campaign_id, id", args)]
+
+
+def same_content_warnings(conn, book_id, marketplace) -> list:
+    """SAME_CONTENT_DIFFERENT_PERIOD: stesso hash per stesso libro/marketplace/campagna/tipo report ma periodi diversi. Calcolato dagli
+    import presenti nel DB (vale anche per import fatti prima e per qualunque ordine di caricamento). Non blocca nulla."""
+    out = []
+    for r in conn.execute("SELECT campaign_id, report_type, file_sha256, GROUP_CONCAT(import_id) ids, GROUP_CONCAT(period_id) pids "
+                          "FROM imports WHERE book_id=? AND COALESCE(UPPER(marketplace), ?)=? "
+                          "GROUP BY campaign_id, report_type, file_sha256 HAVING COUNT(DISTINCT period_id) > 1 "
+                          "ORDER BY campaign_id, report_type", (book_id, str(marketplace).upper(), str(marketplace).upper())):
+        out.append(f"DATA_WARNING {SAME_CONTENT_DIFFERENT_PERIOD} {r['campaign_id']} {r['report_type']}: {SAME_CONTENT_MESSAGE} "
+                   f"(import {r['ids']}; periodi {r['pids']})")
+    return out
 
 
 def analyze_book(conn, settings: dict, mapping: dict, rules_path, book_id: str, logger=None, marketplace=None) -> Analysis:
@@ -62,6 +75,7 @@ def analyze_book(conn, settings: dict, mapping: dict, rules_path, book_id: str, 
         r["_comparable"] = int(r["report_scope"] == "DATE_RANGE" and (r["date_from"], r["date_to"]) in comparable[r["campaign_id"]])
 
     an.audit = audit_book(conn, book_id, ctx.rules, mapping, ctx.royalty, mp)
+    an.warnings += same_content_warnings(conn, book_id, mp)
     an.warnings += an.audit["warnings"] + duplicate_key_warnings(trows, srows)
     for r in trows + srows:
         if r["orders"] and not r["sales"]:

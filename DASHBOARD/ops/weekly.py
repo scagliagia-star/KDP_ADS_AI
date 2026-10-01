@@ -11,8 +11,8 @@ from .dbread import query
 FRESH_DAYS = 7
 EXPECTED = [("TARGETING", "LIFETIME", "Target Lifetime"),
             ("SEARCH_TERM", "D65", "Search Term 65D"),
-            ("TARGETING", "D28", "Target 28D"),
-            ("SEARCH_TERM", "D28", "Search Term 28D")]
+            ("TARGETING", "D30", "Target 30D"),
+            ("SEARCH_TERM", "D30", "Search Term 30D")]
 STATUS_LABELS = {"PRESENTE": "PRESENTE", "OBSOLETO": "OBSOLETO (più vecchio di 7 giorni)", "MANCANTE": "MANCANTE"}
 
 
@@ -20,7 +20,7 @@ def _kind(row):
     if row["report_scope"] == "LIFETIME":
         return "LIFETIME"
     n = days_inclusive(row["date_from"], row["date_to"]) if row["report_scope"] == "DATE_RANGE" else None
-    return {65: "D65", 28: "D28"}.get(n)
+    return {65: "D65", 30: "D30", 28: "D28"}.get(n)
 
 
 def checklist(ws, book_id, reference: date, fresh_days: int = FRESH_DAYS, marketplace=None) -> list[dict]:

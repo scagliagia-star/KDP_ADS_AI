@@ -233,8 +233,8 @@ class WeeklyTests(MBase):
     def four(self, cid, uk, base):
         self.rep(cid, "TARGETING", "LIFETIME", tgt(base, uk), f"{cid}a.csv")
         self.rep(cid, "SEARCH_TERM", "D65", st(base, uk), f"{cid}b.csv")
-        self.rep(cid, "TARGETING", "D28", tgt(base + 1, uk), f"{cid}c.csv")
-        self.rep(cid, "SEARCH_TERM", "D28", st(base + 1, uk), f"{cid}d.csv")
+        self.rep(cid, "TARGETING", "D30", tgt(base + 1, uk), f"{cid}c.csv")
+        self.rep(cid, "SEARCH_TERM", "D30", st(base + 1, uk), f"{cid}d.csv")
 
     def test_checklist_is_independent_per_marketplace(self):
         by = weekly.checklist_by_marketplace(self.ws, BID, self.REF)
@@ -588,9 +588,9 @@ class MigrationBackupTests(unittest.TestCase):
             connect(p).close()
             files = sorted((Path(d) / "backups").glob("*"))
             self.assertEqual(len(files), 1)
-            self.assertRegex(files[0].name, r"^kdp_ads_pre_schema_v4_\d{8}_\d{6}\.db$")
+            self.assertRegex(files[0].name, r"^kdp_ads_pre_schema_v5_\d{8}_\d{6}\.db$")
             self.assertEqual(self._ver(files[0]), 3)                                    # copia PRE migrazione
-            connect(p).close()                                                           # gia' v4: nessun nuovo backup
+            connect(p).close()                                                           # gia' v5: nessun nuovo backup
             self.assertEqual(len(list((Path(d) / "backups").glob("*"))), 1)
 
     def test_same_second_never_overwrites(self):
@@ -608,7 +608,7 @@ class MigrationBackupTests(unittest.TestCase):
                 c.close()
             self.assertNotEqual(a, b)
             self.assertTrue(a.is_file() and b.is_file())
-            self.assertEqual(a.name, "kdp_ads_pre_schema_v4_20260102_030405.db")
+            self.assertEqual(a.name, "kdp_ads_pre_schema_v5_20260102_030405.db")
 
     def test_memory_db_has_no_backup(self):
         connect(":memory:").close()
@@ -643,17 +643,30 @@ class PilotBookTests(unittest.TestCase):
                 for t in ("imports", "target_rows", "search_term_rows", "recommendations", "decisions", "decision_runs", "analysis_runs", "campaigns", "books"):
                     cols = [r[1] for r in c.execute(f"PRAGMA table_info({t})") if r[1] not in ("marketplace",) or t in ("imports", "target_rows", "search_term_rows", "campaigns", "books")]
                     cols = [x for x in cols if x not in ("period_id", "snapshot_id")] if t in ("imports", "target_rows", "search_term_rows") else cols
+                    cols = [x for x in cols if not (t == "imports" and x == "warnings_json")]          # colonna nuova (avvisi strutturati), NULL sui vecchi
                     rows = c.execute(f"SELECT {','.join(cols)} FROM {t} ORDER BY 1,2").fetchall() if cols else []
                     out[t] = (len(rows), hashlib.sha256(json.dumps(rows, default=str).encode()).hexdigest())
                 c.close()
                 return out
+            c = sqlite3.connect(copy)
+            if c.execute("PRAGMA user_version").fetchone()[0] >= 4:                            # DB reale gia' migrato dalla dashboard: la copia
+                c.execute("PRAGMA user_version=3")                                             # torna a v3 per riprovare la migrazione
+                c.commit()
+            c.close()
             before = snapshot(copy)
-            connect(copy).close()                                                              # migrazione schema v4 sulla copia
-            backups = list((Path(tmp) / "backups").glob("kdp_ads_pre_schema_v4_*.db"))
+            connect(copy).close()                                                              # migrazione schema v5 sulla copia
+            backups = list((Path(tmp) / "backups").glob("kdp_ads_pre_schema_v5_*.db"))
             self.assertEqual(len(backups), 1)                                                  # backup automatico, una sola volta
             self.assertEqual(snapshot(backups[0]), before)                                     # il backup e' la copia pre-migrazione
             print("BACKUP:", backups[0].name, "| righe prima/dopo:", {k: v[0] for k, v in before.items()})
-            self.assertEqual(MigrationBackupTests._ver(copy), 4)
+            self.assertEqual(MigrationBackupTests._ver(copy), 5)
+            c = sqlite3.connect(copy)
+            try:
+                self.assertIn("UNIQUE (book_id, campaign_id, report_type, period_id, file_sha256)",
+                              c.execute("SELECT sql FROM sqlite_master WHERE name='imports'").fetchone()[0])
+                self.assertEqual(c.execute("PRAGMA foreign_key_check").fetchall(), [])
+            finally:
+                c.close()
             after = snapshot(copy)
             self.assertEqual(after, before)                                                    # nessuna riga persa o modificata
             repo = Repo(copy, root=ROOT)

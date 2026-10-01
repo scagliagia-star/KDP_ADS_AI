@@ -13,7 +13,7 @@ from pathlib import Path
 from .mapping import CURRENCY_CODES, analyze_headers, dedupe_headers, MappingResult
 from .parsing import parse_number, parse_ratio_pct, parse_date, ParseError
 from . import registry
-from .snapshots import period_id as make_period_id, snapshot_id as make_snapshot_id
+from .snapshots import SAME_CONTENT_DIFFERENT_PERIOD, SAME_CONTENT_MESSAGE, period_id as make_period_id, snapshot_id as make_snapshot_id
 
 NUMERIC = ["impressions", "clicks", "spend", "sales", "orders", "units", "bid",
            "cpc_reported", "roas_reported"]
@@ -46,6 +46,7 @@ class FileResult:
     problems: list = field(default_factory=list)
     unmapped: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+    structured_warnings: list = field(default_factory=list)   # [{code, message, ...}] salvati in imports.warnings_json
     mapped: dict = field(default_factory=dict)
     informational: list = field(default_factory=list)
     duplicate_headers: list = field(default_factory=list)
@@ -83,13 +84,6 @@ def import_file(conn, path: Path, book: dict, meta: dict, settings: dict, mappin
                      campaign_id=str(meta["campaign_id"]), campaign_type=meta["campaign_type"])
     tag = f"{res.book_id}/{res.campaign_id}/{path.name}"
     digest = sha256_file(path)
-
-    dup = conn.execute("SELECT import_id FROM imports WHERE book_id=? AND campaign_id=? AND file_sha256=?",
-                       (res.book_id, res.campaign_id, digest)).fetchone()
-    if dup:
-        res.status, res.import_id = "SKIPPED_DUPLICATE", dup["import_id"]
-        logger.info("SKIP %s: gia' importato (import_id=%s)", tag, dup["import_id"])
-        return res
 
     headers, data = _read_table(path)
     if not headers:
@@ -129,6 +123,25 @@ def import_file(conn, path: Path, book: dict, meta: dict, settings: dict, mappin
         res.date_to = meta.get(f"{prefix}_date_to")
     res.period_id = make_period_id(res.report_scope, res.date_from, res.date_to)
     snap_id = make_snapshot_id(res.book_id, res.campaign_id, m.report_type, res.report_scope, res.date_from, res.date_to)
+    # Deduplica: book + marketplace + campagna + tipo report + periodo + hash. Lo STESSO file dichiarato con un periodo diverso (es. 65D
+    # poi 30D) non e' un duplicato: e' un altro snapshot (se non c'e' conflitto logico, vedi SNAPSHOT_CONFLICT).
+    mp = str(meta.get("marketplace") or "").strip().upper()
+    dup = conn.execute("SELECT import_id, row_count FROM imports WHERE book_id=? AND campaign_id=? AND report_type=? AND period_id=? "
+                       "AND file_sha256=? AND (marketplace IS NULL OR UPPER(marketplace)=?)",
+                       (res.book_id, res.campaign_id, m.report_type, res.period_id, digest, mp)).fetchone()
+    if dup:
+        res.status, res.import_id, res.rows = "SKIPPED_DUPLICATE", dup["import_id"], dup["row_count"] or 0
+        logger.info("SKIP %s: gia' importato (import_id=%s)", tag, dup["import_id"])
+        return res
+    same = conn.execute("SELECT import_id, period_id FROM imports WHERE book_id=? AND campaign_id=? AND report_type=? AND file_sha256=? "
+                        "AND period_id<>? AND (marketplace IS NULL OR UPPER(marketplace)=?) ORDER BY import_id",
+                        (res.book_id, res.campaign_id, m.report_type, digest, res.period_id, mp)).fetchall()
+    if same:                                            # NON blocca l'import e non cambia i periodi: solo avviso strutturato
+        other = [{"import_id": s["import_id"], "period_id": s["period_id"]} for s in same]
+        res.structured_warnings.append({"code": SAME_CONTENT_DIFFERENT_PERIOD, "message": SAME_CONTENT_MESSAGE,
+                                        "period_id": res.period_id, "same_content_as": other})
+        res.warnings.append(f"{SAME_CONTENT_DIFFERENT_PERIOD}: {SAME_CONTENT_MESSAGE} (periodo dichiarato {res.period_id}; contenuto "
+                            f"identico a " + ", ".join(f"import {o['import_id']} ({o['period_id']})" for o in other) + ")")
     clash = conn.execute("SELECT import_id, source_filename FROM imports WHERE snapshot_id=?", (snap_id,)).fetchone()
     if clash:
         res.problems.append(f"SNAPSHOT_CONFLICT: lo snapshot {res.period_id} ({m.report_type}) di questa campagna e' gia' stato importato "
@@ -216,6 +229,8 @@ def import_file(conn, path: Path, book: dict, meta: dict, settings: dict, mappin
             f"VALUES ({','.join('?' * (len(CTX_COLS) + 5))})",
             [ctx[c] for c in CTX_COLS] + [str(path), digest, res.attribution_window, win_src, res.rows])
         iid = cur.lastrowid
+        if res.structured_warnings:
+            conn.execute("UPDATE imports SET warnings_json=? WHERE import_id=?", (json.dumps(res.structured_warnings, ensure_ascii=False), iid))
         is_st = m.report_type == "SEARCH_TERM"
         table = "search_term_rows" if is_st else "target_rows"
         cols = ["import_id"] + CTX_COLS + DATA_COLS + (["search_term"] if is_st else []) + METRIC_COLS

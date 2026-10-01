@@ -79,7 +79,7 @@ def _block(d):
          f"status **{d['status']}** · approvazione manuale richiesta_\n",
          f"- **LIFETIME** ({d['lifetime_action'] or 'n/d'}): {_ev(d, 'lifetime')}",
          f"- **{d['recent_window'] or 'RECENT (contesto)'}** {d['recent_period'] or ''} ({d['recent_action'] or 'n/d'}): {_ev(d, 'recent')} · signal {d['recent_vs_historical_signal']}",
-         f"- **{d['tactical_window'] or '28D / latest comparable period'}** {d['tactical_period'] or ''} "
+         f"- **{d['tactical_window'] or '30D / latest comparable period'}** {d['tactical_period'] or ''} "
          f"({'comparabile' if d['comparable_period'] else 'NON comparabile/assente'}; latest_period_action {d['latest_period_action'] or 'n/d'}): {_ev(d, 'tactical')}",
          f"- **Stato target**: {d['target_status']} · azionabile operativamente: **{'si' if d['operationally_actionable'] else 'no'}**"
          + (f" · azione sottostante se riattivato: **{d['underlying_candidate_action']}**" if d["underlying_candidate_action"] else ""),
@@ -154,7 +154,7 @@ def decisions_markdown(ds) -> str:
         life = "n/d" if d["lifetime_clicks"] is None else f"{d['lifetime_clicks']:g}c/{d['lifetime_orders']:g}o/{sym()}{d['lifetime_spend']:.2f}/ACOS {_acos(d['lifetime_acos'])}"
         rec = []
         if d["tactical_clicks"] is not None:
-            rec.append(f"28D {d['tactical_clicks']:g}c/{d['tactical_orders']:g}o/{sym()}{d['tactical_spend']:.2f}")
+            rec.append(f"{(d['tactical_window'] or 'tattica').replace('RECENT_', '')} {d['tactical_clicks']:g}c/{d['tactical_orders']:g}o/{sym()}{d['tactical_spend']:.2f}")
         if d["recent_clicks"] is not None:
             rec.append(f"{d['recent_window'] or 'recente'} {d['recent_clicks']:g}c/{d['recent_orders']:g}o/{sym()}{d['recent_spend']:.2f}")
         return [d["campaign_id"].replace("CHAIR_TAI_CHI_", ""), d["target"], d["target_status"], d["underlying_candidate_action"] or "",

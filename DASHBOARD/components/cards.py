@@ -74,7 +74,7 @@ def decision_card(st, d):
         l_extra = f"Profitto stimato: {F.money(d.get('lifetime_estimated_profit'))} (stima, vedi metodologia)"
         metrics_block(st, U.label_window("LIFETIME").upper(), d, "lifetime", l_extra)
         metrics_block(st, f"{U.label_window(d.get('recent_window') or 'RECENT_65D').upper()} · {d.get('recent_period') or F.ND}", d, "recent")
-        metrics_block(st, f"{U.label_window(d.get('tactical_window') or 'RECENT_28D').upper()} · {d.get('tactical_period') or F.ND}", d, "tactical")
+        metrics_block(st, f"{U.label_window(d.get('tactical_window') or 'RECENT_30D').upper()} · {d.get('tactical_period') or F.ND}", d, "tactical")
 
         st.markdown("**PERCHÉ?**")
         for part in [p.strip() for p in U.label_reason(d.get("reason")).split(" | ")]:

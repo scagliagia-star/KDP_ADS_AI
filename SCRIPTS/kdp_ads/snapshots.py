@@ -3,6 +3,11 @@ non si sovrascrivono e non si fondono. Finestre sovrapposte non vengono MAI somm
 from datetime import date
 
 
+SAME_CONTENT_DIFFERENT_PERIOD = "SAME_CONTENT_DIFFERENT_PERIOD"
+SAME_CONTENT_MESSAGE = ("Il report ha contenuto identico a un altro snapshot della stessa campagna ma con periodo diverso. "
+                        "Verificare che il periodo selezionato su Amazon sia corretto.")
+
+
 def days_inclusive(d_from: str | None, d_to: str | None) -> int | None:
     """Giorni del periodo (estremi inclusi); None se le date non sono entrambe note (es. LIFETIME senza date_from)."""
     if not d_from or not d_to:

@@ -19,8 +19,9 @@ from . import ValidationError
 from .backup import backup_db
 
 REPORT_TYPES = {"TARGETING": "Target", "SEARCH_TERM": "Search Term"}
-PERIOD_KINDS = {"LIFETIME": "Storico completo (LIFETIME)", "D65": "Ultimi 65 giorni", "D28": "Ultimi 28 giorni",
+PERIOD_KINDS = {"LIFETIME": "Storico completo (LIFETIME)", "D65": "Ultimi 65 giorni", "D30": "Ultimi 30 giorni",
                 "CUSTOM": "Intervallo personalizzato"}
+LEGACY_KINDS = {"D28": "Ultimi 28 giorni (storico, non piu' proposto)"}      # solo compatibilita': snapshot 28D gia' esistenti
 _SAFE = re.compile(r"[^A-Za-z0-9._() \-]")
 
 
@@ -54,17 +55,17 @@ def _d(v, label) -> date:
 
 
 def resolve_period(kind, date_from=None, date_to=None) -> Period:
-    """LIFETIME: serve la data di esportazione (date_to). 65/28 giorni: date_from = date_to - (n-1) (estremi inclusi).
+    """LIFETIME: serve la data di esportazione (date_to). 65/30 giorni (28 solo legacy): date_from = date_to - (n-1) (estremi inclusi).
     Personalizzato: servono entrambe le date."""
-    if kind not in PERIOD_KINDS:
+    if kind not in PERIOD_KINDS and kind not in LEGACY_KINDS:
         raise ValidationError("Tipo di periodo non valido")
     if date_to in (None, ""):
         raise ValidationError("Data di fine: campo obbligatorio")
     to = _d(date_to, "Data di fine")
     if kind == "LIFETIME":
         return Period("LIFETIME", None, to.isoformat())
-    if kind in ("D65", "D28"):
-        n = 65 if kind == "D65" else 28
+    if kind in ("D65", "D30", "D28"):
+        n = {"D65": 65, "D30": 30, "D28": 28}[kind]
         return Period("DATE_RANGE", (to - timedelta(days=n - 1)).isoformat(), to.isoformat())
     if date_from in (None, ""):
         raise ValidationError("Data di inizio: campo obbligatorio")
@@ -125,24 +126,36 @@ class UploadPlan:
     sha: str = ""
 
 
-def plan_upload(campaign_dir, original_name, data: bytes) -> UploadPlan:
+def plan_upload(campaign_dir, original_name, data: bytes, period: "Period | None" = None) -> UploadPlan:
     """Nome definitivo del file nella cartella campagna. Non sovrascrive MAI: se esiste un file diverso con lo stesso nome
-    ne genera uno sicuro (nome__2.csv ...); se esiste identico lo riusa (a meno che sia gia' dichiarato con un altro periodo)."""
+    ne genera uno sicuro (nome__2.csv ...). Un file con lo stesso contenuto (anche con altro nome, es. "(1)") viene riusato, purche'
+    non sia gia' dichiarato con un periodo DIVERSO da quello richiesto: lo stesso contenuto con un altro periodo e' un altro snapshot e
+    ottiene un proprio nome (la dichiarazione del file esistente non va mai riscritta). Cartella _originali e staging non partecipano."""
     if not data:
         raise ValidationError("Il file è vuoto")
     folder = Path(campaign_dir)
     name, digest = safe_filename(original_name), sha256(data)
     meta, _ = registry.load_metadata(folder)
-    declared = {s["file"] for s in (meta or {}).get("snapshots") or []}
+    declared = {s["file"]: (s.get("report_scope"), s.get("date_from"), s.get("date_to")) for s in (meta or {}).get("snapshots") or []}
+    want = (period.scope, period.date_from, period.date_to) if period else None
+
+    def reusable(fname):
+        d = declared.get(fname)
+        return d is None or (want is not None and tuple(d) == want)
     stem, ext = name[:-4], name[-4:]
+    if folder.is_dir():
+        for other in sorted(folder.glob("*.csv")):     # stesso contenuto con altro nome: e' lo stesso report
+            if other.name != name and sha256(other.read_bytes()) == digest and reusable(other.name):
+                return UploadPlan(other.name, "REUSE_IDENTICAL", f"Stesso contenuto di {other.name}, già presente nella cartella campagna: "
+                                  "viene riusato", digest)
     cand, i = name, 1
     while True:
         f = folder / cand
         if not f.exists():
             if cand == name:
                 return UploadPlan(cand, "NEW", sha=digest)
-            return UploadPlan(cand, "RENAMED", f"Esisteva già un file diverso con lo stesso nome: salvato come {cand}", digest)
-        if sha256(f.read_bytes()) == digest and cand not in declared:
+            return UploadPlan(cand, "RENAMED", f"Esisteva già un file con lo stesso nome (contenuto o periodo diverso): salvato come {cand}", digest)
+        if sha256(f.read_bytes()) == digest and reusable(cand):
             return UploadPlan(cand, "REUSE_IDENTICAL", "Esiste già un file identico nella cartella campagna: viene riusato", digest)
         i += 1
         cand = f"{stem}__{i}{ext}"

@@ -117,7 +117,7 @@ else:
         else:
             try:
                 period = importing.resolve_period(kind, d_from, d_to)
-                plan = importing.plan_upload(folder, upload.name, data)
+                plan = importing.plan_upload(folder, upload.name, data, period)
                 entry = importing.build_entry(plan.final_name, rtype, period, attribution)
             except ValidationError as e:
                 st.error(str(e))
@@ -139,7 +139,7 @@ else:
             dry = S.get("imp_dry")
             if dry is not None:
                 {"DRY_RUN_OK": st.success, "SKIPPED_DUPLICATE": st.warning}.get(dry.status, st.error)(U.DRY_RUN_LABELS[dry.status])
-                st.table({"Marketplace": dry.marketplace or F.ND, "Righe": dry.rows, "Date": f"{dry.date_from or '—'} → {dry.date_to or '—'}",
+                st.table({"Marketplace": dry.marketplace or F.ND, "Righe": str(dry.rows), "Date": f"{dry.date_from or '—'} → {dry.date_to or '—'}",
                           "Tipo rilevato": importing.REPORT_TYPES.get(dry.report_type, F.ND), "Snapshot": dry.period_id or F.ND})
                 for w in dry.warnings:
                     st.warning(w)
@@ -156,7 +156,7 @@ else:
         if out is not None:
             if out.status == "IMPORTED":
                 st.success("Report importato")
-                st.table({"import_id": out.import_id, "Marketplace": mp, "Righe importate": out.rows, "Snapshot": out.snapshot_id,
+                st.table({"import_id": str(out.import_id), "Marketplace": mp, "Righe importate": str(out.rows), "Snapshot": out.snapshot_id,
                           "File salvato": out.file_path, "Copia originale": out.original_copy, "Backup DB": out.backup or F.ND})
             elif out.status == "SKIPPED_DUPLICATE":
                 st.warning("Report già importato (duplicato): nessuna modifica")

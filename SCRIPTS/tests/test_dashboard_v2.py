@@ -76,7 +76,7 @@ class WsBase(unittest.TestCase):
         """Flusso completo: periodo -> piano upload -> anteprima -> dry-run -> (import reale)."""
         folder = self.ws.input_dir / book / cid
         period = importing.resolve_period(kind, d_from, d_to)
-        plan = importing.plan_upload(folder, name, data)
+        plan = importing.plan_upload(folder, name, data, period)
         entry = importing.build_entry(plan.final_name, rtype, period)
         dry = importing.dry_run(self.ws, book, cid, plan.final_name, data, entry)
         if not commit:
@@ -426,22 +426,22 @@ class WeeklyTests(WsBase):
 
     def test_incomplete_set_lists_what_is_missing(self):
         rows, st = self.status()
-        self.assertEqual(st, {"Target Lifetime": "MANCANTE", "Search Term 65D": "MANCANTE", "Target 28D": "MANCANTE", "Search Term 28D": "MANCANTE"})
+        self.assertEqual(st, {"Target Lifetime": "MANCANTE", "Search Term 65D": "MANCANTE", "Target 30D": "MANCANTE", "Search Term 30D": "MANCANTE"})
         self.assertFalse(rows[0]["complete"])
         self.assertFalse(weekly.book_complete(rows))
         self.report("C_EXACT", "TARGETING", "LIFETIME", tcsv(1), "a.csv")
         self.report("C_EXACT", "SEARCH_TERM", "D65", scsv(1), "b.csv")
         rows, st = self.status()
-        self.assertEqual((st["Target Lifetime"], st["Search Term 65D"], st["Target 28D"], st["Search Term 28D"]),
+        self.assertEqual((st["Target Lifetime"], st["Search Term 65D"], st["Target 30D"], st["Search Term 30D"]),
                          ("PRESENTE", "PRESENTE", "MANCANTE", "MANCANTE"))
-        self.assertEqual([m["label"] for m in rows[0]["missing"]], ["Target 28D", "Search Term 28D"])
+        self.assertEqual([m["label"] for m in rows[0]["missing"]], ["Target 30D", "Search Term 30D"])
         self.assertFalse(rows[0]["complete"])
 
     def test_complete_set(self):
         self.report("C_EXACT", "TARGETING", "LIFETIME", tcsv(1), "a.csv")
         self.report("C_EXACT", "SEARCH_TERM", "D65", scsv(1), "b.csv")
-        self.report("C_EXACT", "TARGETING", "D28", tcsv(2), "c.csv")
-        self.report("C_EXACT", "SEARCH_TERM", "D28", scsv(2), "d.csv")
+        self.report("C_EXACT", "TARGETING", "D30", tcsv(2), "c.csv")
+        self.report("C_EXACT", "SEARCH_TERM", "D30", scsv(2), "d.csv")
         rows, st = self.status()
         self.assertEqual(set(st.values()), {"PRESENTE"})
         self.assertTrue(rows[0]["complete"] and weekly.book_complete(rows))
@@ -454,9 +454,9 @@ class WeeklyTests(WsBase):
         self.assertFalse(rows[0]["complete"])
 
     def test_custom_window_does_not_count_as_28d(self):
-        self.report("C_EXACT", "TARGETING", "CUSTOM", tcsv(5), "x.csv", d_from=date(2026, 9, 10))     # 21 giorni: non e' 28D
+        self.report("C_EXACT", "TARGETING", "CUSTOM", tcsv(5), "x.csv", d_from=date(2026, 9, 10))     # 21 giorni: non e' 30D
         _, st = self.status()
-        self.assertEqual(st["Target 28D"], "MANCANTE")
+        self.assertEqual(st["Target 30D"], "MANCANTE")
 
 
 # ------------------------------------------------------------------ pagine V2 (registratore con clic e upload simulati)
@@ -672,17 +672,17 @@ class PageTests(WsBase):
         self.p.state["imp_mode"] = "Importazione settimanale"
         t, _ = self.p.run("8_Importa_report.py")
         allt = "\n".join(t)
-        for need in ("[ ] **Target Lifetime**", "[ ] **Search Term 65D**", "[ ] **Target 28D**", "[ ] **Search Term 28D**", "mancante"):
+        for need in ("[ ] **Target Lifetime**", "[ ] **Search Term 65D**", "[ ] **Target 30D**", "[ ] **Search Term 30D**", "mancante"):
             self.assertTrue(need in allt or any(need in x for x in t), need)
         self.assertNotIn("Set report settimanale completo", allt)
         today = date.today()
         self.report("C_EXACT", "TARGETING", "LIFETIME", tcsv(1), "a.csv", d_to=today)
         self.report("C_EXACT", "SEARCH_TERM", "D65", scsv(1), "b.csv", d_to=today)
-        self.report("C_EXACT", "TARGETING", "D28", tcsv(2), "c.csv", d_to=today)
+        self.report("C_EXACT", "TARGETING", "D30", tcsv(2), "c.csv", d_to=today)
         t, _ = self.p.run("8_Importa_report.py")
-        self.assertTrue(any("[ ] **Search Term 28D**" in x for x in t))
+        self.assertTrue(any("[ ] **Search Term 30D**" in x for x in t))
         self.assertNotIn("Set report settimanale completo", t)
-        self.report("C_EXACT", "SEARCH_TERM", "D28", scsv(2), "d.csv", d_to=today)
+        self.report("C_EXACT", "SEARCH_TERM", "D30", scsv(2), "d.csv", d_to=today)
         t, _ = self.p.run("8_Importa_report.py")
         self.assertIn("Set report settimanale completo", t)
         self.assertTrue(any("[x] **Target Lifetime**" in x for x in t))
@@ -692,11 +692,11 @@ class PageTests(WsBase):
         self.new_campaign()
         self.p.state["imp_mode"] = "Importazione settimanale"
         _, log = self.p.run("8_Importa_report.py")
-        btn = [(a, k) for name, a, k in log if name.endswith("button") and a and a[0].startswith("Carica Target 28D")][0]
+        btn = [(a, k) for name, a, k in log if name.endswith("button") and a and a[0].startswith("Carica Target 30D")][0]
         k = btn[1]
         k["on_click"](*k["args"])
         self.assertEqual((self.p.state["imp_mode"], self.p.state["imp_campaign"], self.p.state["imp_rtype"], self.p.state["imp_period"]),
-                         ("Importazione guidata", "C_EXACT", "TARGETING", "D28"))
+                         ("Importazione guidata", "C_EXACT", "TARGETING", "D30"))
 
 
 U_NO_AMAZON = "Nessuna modifica viene eseguita su Amazon Ads."

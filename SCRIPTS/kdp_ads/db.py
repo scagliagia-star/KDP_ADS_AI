@@ -1,4 +1,5 @@
 import logging
+import re
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -6,7 +7,7 @@ from pathlib import Path
 from .decfields import DEC_FIELDS, STATUSES
 from .recfields import REC_FIELDS
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Colonne di contesto presenti in imports e in ogni riga dati (denormalizzate per filtrare senza JOIN).
 _CTX = """
@@ -93,7 +94,7 @@ CREATE TABLE IF NOT EXISTS imports (
     file_path TEXT NOT NULL, file_sha256 TEXT NOT NULL,
     attribution_window TEXT, attribution_source TEXT,
     row_count INTEGER,
-    UNIQUE (book_id, campaign_id, file_sha256)
+    UNIQUE (book_id, campaign_id, report_type, period_id, file_sha256)
 );
 
 CREATE TABLE IF NOT EXISTS target_rows (
@@ -142,6 +143,7 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     conn.executescript(SCHEMA)
     _ensure_columns(conn, "recommendations", REC_FIELDS)     # colonne aggiunte dopo (nullable, righe storiche = NULL)
     _ensure_columns(conn, "decisions", DEC_FIELDS)
+    _ensure_columns(conn, "imports", [("warnings_json", "TEXT")])          # avvisi strutturati dell'import (es. SAME_CONTENT_DIFFERENT_PERIOD)
     _ensure_columns(conn, "analysis_runs", [("marketplace", "TEXT")])        # run storici: NULL = marketplace legacy del libro
     _ensure_columns(conn, "decision_runs", [("marketplace", "TEXT")])
     return conn
@@ -185,10 +187,44 @@ def backup_before_migration(conn, from_version: int) -> Path | None:
     return dest
 
 
+_OLD_IMPORTS_UNIQUE = "UNIQUE (book_id, campaign_id, file_sha256)"
+_NEW_IMPORTS_UNIQUE = "UNIQUE (book_id, campaign_id, report_type, period_id, file_sha256)"
+
+
+def _rebuild_imports_unique(conn):
+    """v4 -> v5: la deduplica non e' piu' (libro, campagna, hash) ma (libro, campagna, tipo report, periodo, hash): lo stesso file puo'
+    essere uno snapshot valido per una finestra diversa. SQLite non permette di togliere un UNIQUE: si ricopia la tabella imports
+    (stesse colonne, stessi import_id, nessuna riga persa) e si ricreano gli indici. Righe figlie e FK non vengono toccate."""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='imports'").fetchone()
+    if not row or _OLD_IMPORTS_UNIQUE not in row[0]:
+        return
+    n_before = conn.execute("SELECT COUNT(*) FROM imports").fetchone()[0]
+    new_sql = re.sub(r'CREATE TABLE (IF NOT EXISTS )?"?imports"?', "CREATE TABLE imports_new", row[0].replace(_OLD_IMPORTS_UNIQUE, _NEW_IMPORTS_UNIQUE), count=1)
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute("DROP TABLE IF EXISTS imports_new")
+        conn.execute(new_sql)
+        conn.execute("INSERT INTO imports_new SELECT * FROM imports")
+        if conn.execute("SELECT COUNT(*) FROM imports_new").fetchone()[0] != n_before:
+            raise RuntimeError("migrazione imports: numero di righe diverso, annullata")
+        conn.execute("DROP TABLE imports")
+        conn.execute("ALTER TABLE imports_new RENAME TO imports")
+        conn.commit()
+        if conn.execute("PRAGMA foreign_key_check").fetchall():
+            raise RuntimeError("migrazione imports: violazioni di chiave esterna")
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
+
+
 def _upgrade(conn):
     """v1 (mono-libro) -> v2 (multi-book): ricrea le tabelle SOLO se vuote.
     v2 -> v3 (period snapshot): aggiunge period_id/snapshot_id e li ricalcola dai dati esistenti, SENZA perdere dati.
     v3 -> v4 (multi-marketplace): colonne/tabella nuove, nessuna riga toccata.
+    v4 -> v5 (deduplica per snapshot): ricopia imports con UNIQUE (libro, campagna, tipo, periodo, hash), nessuna riga persa.
     Prima di OGNI migrazione di un DB esistente si crea un backup (una volta sola: a schema aggiornato non si ripete)."""
     ver = conn.execute("PRAGMA user_version").fetchone()[0]
     if ver >= SCHEMA_VERSION:
@@ -216,5 +252,6 @@ def _upgrade(conn):
                     conn.execute(f"UPDATE {t} SET period_id = (SELECT i.period_id FROM imports i WHERE i.import_id = {t}.import_id), "
                                  f"snapshot_id = (SELECT i.snapshot_id FROM imports i WHERE i.import_id = {t}.import_id) "
                                  f"WHERE period_id IS NULL")
+    _rebuild_imports_unique(conn)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     conn.commit()
