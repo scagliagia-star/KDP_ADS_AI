@@ -249,7 +249,7 @@ class RenderTests(td.DashBase):
         pages = [(a[0], k) for name, a, k in log if name == "st.Page"]
         self.assertEqual(pages[0], ("panoramica.py", {"title": "Panoramica", "default": True}))
         self.assertEqual([t["title"] for _, t in pages], ["Panoramica", "Tutte le decisioni", "Target in pausa", "Campagne",
-                                                          "Erogazione", "Confronto tra campagne", "Gestione libri", "Importa report"])
+                                                          "Erogazione", "Confronto tra campagne", "Opportunità Search Term", "Gestione libri", "Importa report"])
         self.assertEqual(sum(1 for _, t in pages if t["default"]), 1)
         for path, _ in pages:                                                        # ogni voce punta a un file esistente
             self.assertTrue((ROOT / "DASHBOARD" / path).is_file(), path)
@@ -294,7 +294,7 @@ class RenderTests(td.DashBase):
     def test_page_files_have_italian_names(self):
         names = sorted(p.name for p in (ROOT / "DASHBOARD" / "pages").glob("*.py"))
         self.assertEqual(names, ["2_Tutte_le_decisioni.py", "3_Target_in_pausa.py", "4_Campagne.py", "5_Erogazione.py",
-                                 "6_Confronto_tra_campagne.py", "7_Gestione_libri.py", "8_Importa_report.py"])
+                                 "6_Confronto_tra_campagne.py", "7_Gestione_libri.py", "8_Importa_report.py", "9_Opportunita_Search_Term.py"])
 
 
 if __name__ == "__main__":

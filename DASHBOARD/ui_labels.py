@@ -20,6 +20,7 @@ NAV_PAGES = [
     ("pages/4_Campagne.py", "Campagne"),
     ("pages/5_Erogazione.py", "Erogazione"),
     ("pages/6_Confronto_tra_campagne.py", "Confronto tra campagne"),
+    ("pages/9_Opportunita_Search_Term.py", "Opportunità Search Term"),
     ("pages/7_Gestione_libri.py", "Gestione libri"),
     ("pages/8_Importa_report.py", "Importa report"),
 ]
@@ -92,6 +93,29 @@ PRIORITY_LABELS = {"P1":"P1 · evidenza forte", "P2": "P2 · attenzione", "P3": 
 AGREEMENT_LABELS = {"AGREE": "Concorda", "DISAGREE": "Non concorda", "PARTIAL": "Concorda in parte", "NOT_COMPARABLE": "Non confrontabile"}
 WARNING_KIND_LABELS = {"DATA_WARNING": "AVVISO SUI DATI", "NOTA": "NOTA", "ALTRO": "ALTRO"}
 REPORT_TYPE_LABELS = {"TARGETING": "Report Target", "SEARCH_TERM": "Report Termini di ricerca"}
+# ------------------------------------------------------------------ Opportunita' Search Term (layer separato dalle decisioni di bid)
+OPP_LABELS = {
+    "PROMOTE_TO_EXACT": "Valuta aggiunta in EXACT",
+    "NEGATIVE_CANDIDATE": "Valuta keyword negativa",
+    "WATCH_SEARCH_TERM": "Monitora search term",
+    "NO_ACTION": "Nessuna azione",
+}
+OPP_PAGE_TITLE = "Opportunità Search Term"
+OPP_INTRO = ("Suggerimenti manuali ricavati dai search term reali (query digitate dagli utenti) di PHRASE, Auto e altre campagne. "
+             "Sono separati dalle decisioni di bid: nessuna campagna, keyword o negativa viene creata o modificata automaticamente.")
+OPP_SECTION_PROMOTE = "A · DA PROMUOVERE IN EXACT"
+OPP_SECTION_NEGATIVE = "B · CANDIDATI NEGATIVI"
+OPP_SECTION_WATCH = "C · DA MONITORARE"
+OPP_KPI_EXACT = "OPPORTUNITÀ EXACT"
+OPP_KPI_NEGATIVE = "CANDIDATI NEGATIVI"
+OPP_NEW_CAMPAIGN = "Valuta creazione campagna EXACT"
+OPP_NEW_CAMPAIGN_TEXT = ("Ci sono almeno {n} search term unici da promuovere in EXACT provenienti da PHRASE/Auto e in questo marketplace non esiste "
+                         "una campagna EXACT. Suggerimento strutturale, non operativo: nessuna campagna viene creata.")
+OPP_AGREEMENT_LABELS = {"CONCORDI": "Finestre concordi", "DISCORDI": "Finestre discordanti", "SOLO_UNA_FINESTRA": "Una sola finestra",
+                        "SOLO_65D": "Solo 65 giorni (30 giorni non importato)", "NON_CONFERMATO_30D": "Non confermato negli ultimi 30 giorni"}
+OPP_FLAG_LABELS = {"ALREADY_IN_EXACT": "Già in EXACT", "EXACT_PAUSED": "Keyword EXACT in pausa", "DUPLICATE_ACROSS_CAMPAIGNS": "Presente in più campagne",
+                   "MULTI_PARENT_TARGET": "Catturato da più target", "TERM_EQUALS_PARENT_TARGET": "Coincide con il target padre"}
+OPP_NEGATIVE_TYPE_NOTE = "Il tipo di negativa (exact o phrase) non è deciso."
 FLAG_LABELS = {
     "ZERO_ORDER_WASTE": "Spesa senza ordini",
     "HIGH_VOLUME": "Alto volume",
@@ -150,6 +174,18 @@ def label_delivery_source(v):
 
 def label_target_type(v):
     return _get(TARGET_TYPE_LABELS, v)
+
+
+def label_opportunity(v):
+    return _get(OPP_LABELS, v)
+
+
+def label_opp_agreement(v):
+    return _get(OPP_AGREEMENT_LABELS, v)
+
+
+def label_opp_flags(flags, sep="; "):
+    return sep.join(OPP_FLAG_LABELS.get(f, f) for f in (flags or []))
 
 
 def label_priority(v):

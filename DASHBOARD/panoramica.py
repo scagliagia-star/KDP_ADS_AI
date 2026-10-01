@@ -32,6 +32,7 @@ def main():
 
     st.divider()
     cards.kpi_row(st, ctx.summary)
+    cards.opportunity_kpis(st, ctx.repo, ctx.book, ctx.marketplace)
 
     st.divider()
     st.header(f"1 · {U.ACTION_CENTER_TITLE}")

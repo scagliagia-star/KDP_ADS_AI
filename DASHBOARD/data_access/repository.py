@@ -9,7 +9,10 @@ import re
 import sqlite3
 from pathlib import Path
 
+from kdp_ads.decision import map_target_status
 from kdp_ads.metrics import compute_metrics
+from kdp_ads.opportunities import compute_opportunities, load_inputs, make_ctx
+from kdp_ads.rules import load_rules
 from kdp_ads.snapshots import days_inclusive, window_label
 
 
@@ -218,6 +221,28 @@ class Repo:
             wins.sort(key=lambda w: (w["window"] != "LIFETIME", -(w["days"] or 0)))
             out.append({"campaign_id": cid, "campaign_type": (camps.get(cid) or {}).get("campaign_type"), "windows": wins})
         return out
+
+    # ------------------------------------------------------------ opportunita' search term (calcolo in memoria, nessuna scrittura)
+    def search_term_opportunities(self, book, marketplace) -> dict:
+        """Opportunita' Search Term di UN libro e UN marketplace, calcolate al volo dai dati importati (kdp_ads.opportunities).
+        `book` = riga del libro con l'economia del marketplace (royalty, target ACOS, break-even). Nessuna persistenza."""
+        for k in ("royalty_per_copy", "target_acos", "break_even_acos"):
+            if book.get(k) is None:
+                raise RepoError(f"Economia del libro incompleta ({k}): impossibile calcolare le opportunita'.")
+        candidates = [Path(self.root) / "CONFIG" / "rules.json"] if self.root else []
+        candidates.append(Path(__file__).resolve().parents[2] / "CONFIG" / "rules.json")      # rules.json del progetto
+        rules_path = next((c for c in candidates if c.is_file()), None)
+        if rules_path is None:
+            raise RepoError(f"rules.json non trovato: {candidates[0]}")
+        conn = self._connect()
+        try:
+            data = load_inputs(conn, book["book_id"], marketplace, self.legacy_marketplace(book["book_id"]))
+        except sqlite3.OperationalError as e:
+            raise RepoError(f"Schema del database non compatibile: {e}") from e
+        finally:
+            conn.close()
+        ctx = make_ctx({**book, "marketplace": marketplace}, load_rules(rules_path))
+        return compute_opportunities(data["st_rows"], data["target_rows"], data["campaigns"], ctx, map_target_status)
 
     # ------------------------------------------------------------ cross-campaign
     def overlaps(self, analysis_run):

@@ -108,6 +108,22 @@ def kpi_row(st, summary):
         st.caption("Run precedente all'introduzione di target_status / operationally_actionable: alcuni conteggi non sono disponibili.")
 
 
+def opportunity_kpis(st, repo, book, marketplace):
+    """KPI SEPARATI dalle decisioni di bid: opportunita' EXACT e candidati negativi (termini unici). Se non calcolabili: n/d."""
+    from data_access.repository import RepoError
+    from kdp_ads.opportunities import NEGATIVE, PROMOTE, unique_terms
+    try:
+        res = repo.search_term_opportunities(book, marketplace)
+    except RepoError:
+        res = None
+    c = st.columns(2)
+    c[0].metric(U.OPP_KPI_EXACT, F.ND if res is None else len(unique_terms(res["records"], PROMOTE)))
+    c[1].metric(U.OPP_KPI_NEGATIVE, F.ND if res is None else len(unique_terms(res["records"], NEGATIVE)))
+    st.caption("Suggerimenti sui search term reali, separati da «DA VALUTARE ORA» (decisioni di bid). Dettaglio nella pagina Opportunità Search Term.")
+    if res and res.get("new_exact_campaign"):
+        st.info(f"{U.OPP_NEW_CAMPAIGN}: " + U.OPP_NEW_CAMPAIGN_TEXT.format(n=res["new_exact_campaign"]["min_terms"]))
+
+
 def warnings_section(st, warnings):
     st.subheader(f"{U.DATA_WARNINGS_TITLE} ({len(warnings)})")
     if not warnings:
