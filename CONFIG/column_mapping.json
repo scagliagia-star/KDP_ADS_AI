@@ -7,7 +7,7 @@
     "currency":         ["Currency"],
     "campaign_name":    ["Campaign Name"],
     "ad_group":         ["Ad Group Name"],
-    "target":           ["Targeting", "Parola chiave", "Parole chiave", "Categorie e prodotti", "Target per prodotto"],
+    "target":           ["Targeting", "Parola chiave", "Parole chiave", "Categorie e prodotti", "Target per prodotto", "Gruppi di annunci con targeting automatico"],
     "match_type":       ["Match Type", "Tipo di corrispondenza target"],
     "search_term":      ["Customer Search Term", "Termine di ricerca del cliente", "Prodotto corrispondente"],
     "added_as":         ["Added as", "Aggiunto come"],

@@ -39,15 +39,34 @@ def product_asin(target: str | None) -> str | None:
     return m.group(2).lower() if m else None
 
 
-def target_type(target: str | None) -> str:
-    """PRODUCT_TARGET per ASIN/categorie (mai trasformati in keyword), altrimenti KEYWORD_TARGET."""
+# Gruppi di targeting AUTOMATICO Amazon (colonna 'Gruppi di annunci con targeting automatico'): NON sono keyword digitate dall'utente.
+AUTO_CAMPAIGN_TYPES = frozenset({"AUTO", "OTHER"})
+AUTO_TARGET_GROUPS = frozenset({"loose-match", "close-match", "complements", "substitutes"})
+AUTO_TARGETING_GROUP = "AUTO_TARGETING_GROUP"
+
+
+def is_auto_group(target: str | None, campaign_type: str | None) -> bool:
+    """True solo per i 4 gruppi Auto DENTRO una campagna AUTO/OTHER: la stessa stringa in una campagna EXACT/PHRASE resta una keyword."""
+    return (campaign_type or "").strip().upper() in AUTO_CAMPAIGN_TYPES and normalize_term(target) in AUTO_TARGET_GROUPS
+
+
+def target_type(target: str | None, campaign_type: str | None = None) -> str:
+    """PRODUCT_TARGET per ASIN/categorie (mai trasformati in keyword), AUTO_TARGETING_GROUP per i gruppi Auto
+    (richiede campaign_type AUTO/OTHER), altrimenti KEYWORD_TARGET.
+    Per un Search Term il tipo e' quello del TARGET che l'ha catturato: il termine resta un search term reale, il gruppo Auto che
+    l'ha generato (campo target) non e' mai confuso con la keyword che in futuro se ne potra' ricavare."""
     if product_asin(target) or _CATEGORY_TARGET.match(target or ""):
         return "PRODUCT_TARGET"
+    if is_auto_group(target, campaign_type):
+        return AUTO_TARGETING_GROUP
     return "KEYWORD_TARGET"
 
 
-def term_matches_target(search_term: str | None, target: str | None) -> bool:
-    """True se il termine e' esattamente il target (stessa identita' normalizzata; per gli ASIN: il prodotto corrispondente)."""
+def term_matches_target(search_term: str | None, target: str | None, campaign_type: str | None = None) -> bool:
+    """True se il termine e' esattamente il target (stessa identita' normalizzata; per gli ASIN: il prodotto corrispondente).
+    Un gruppo Auto non e' una query: nessun termine 'coincide' con esso."""
+    if is_auto_group(target, campaign_type):
+        return False
     t = normalize_term(search_term)
     if not t:
         return False

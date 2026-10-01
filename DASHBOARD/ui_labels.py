@@ -81,7 +81,14 @@ DELIVERY_SOURCE_LABELS = {
     "CAMPAIGN_FALLBACK": "Segnale ereditato dalla campagna",
     "UNKNOWN": "Origine non disponibile",
 }
-PRIORITY_LABELS = {"P1": "P1 · evidenza forte", "P2": "P2 · attenzione", "P3": "P3 · da monitorare", "P4": "P4 · bassa priorità"}
+TARGET_TYPE_LABELS = {
+    "AUTO_TARGETING_GROUP": "Gruppo targeting automatico",
+    "KEYWORD_TARGET": "Keyword",
+    "PRODUCT_TARGET": "Target prodotto (ASIN/categoria)",
+}
+AUTO_GROUPS_NOTE = ("loose-match, close-match, complements e substitutes sono gruppi di targeting automatico di Amazon (campagna Auto), "
+                    "non keyword manuali: i termini di ricerca che generano restano termini reali.")
+PRIORITY_LABELS = {"P1":"P1 · evidenza forte", "P2": "P2 · attenzione", "P3": "P3 · da monitorare", "P4": "P4 · bassa priorità"}
 AGREEMENT_LABELS = {"AGREE": "Concorda", "DISAGREE": "Non concorda", "PARTIAL": "Concorda in parte", "NOT_COMPARABLE": "Non confrontabile"}
 WARNING_KIND_LABELS = {"DATA_WARNING": "AVVISO SUI DATI", "NOTA": "NOTA", "ALTRO": "ALTRO"}
 REPORT_TYPE_LABELS = {"TARGETING": "Report Target", "SEARCH_TERM": "Report Termini di ricerca"}
@@ -110,7 +117,7 @@ COLUMN_LABELS = {
     "operationally_actionable": "Azionabile ora", "current_bid": "Bid attuale", "bid_change_pct": "Variazione bid",
     "confidence": "Affidabilità", "delivery_signal": "Erogazione", "delivery_source": "Origine del segnale",
     "lifetime_acos": "ACOS storico completo", "recent_acos": "ACOS recente", "lifetime_clicks": "Clic storico completo",
-    "reason": "Perché", "flags": "Segnalazioni",
+    "reason": "Perché", "flags": "Segnalazioni", "target_type": "Tipo di target",
 }
 
 
@@ -139,6 +146,10 @@ def label_delivery(v):
 
 def label_delivery_source(v):
     return _get(DELIVERY_SOURCE_LABELS, v)
+
+
+def label_target_type(v):
+    return _get(TARGET_TYPE_LABELS, v)
 
 
 def label_priority(v):
@@ -283,6 +294,8 @@ def display_value(column, v):
         return label_action(v)
     if column == "target_status":
         return label_status(v)
+    if column == "target_type":
+        return label_target_type(v)
     if column == "confidence":
         return label_confidence(v)
     if column == "delivery_signal":

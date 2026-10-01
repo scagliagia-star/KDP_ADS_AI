@@ -10,7 +10,7 @@ import ui_labels as U  # noqa: E402
 from components import cards, sidebar  # noqa: E402
 from data_access.repository import filter_decisions  # noqa: E402
 
-COLUMNS = ["priority", "campaign_id", "target", "target_status", "final_action", "underlying_candidate_action",
+COLUMNS = ["priority", "campaign_id", "target", "target_type", "target_status", "final_action", "underlying_candidate_action",
            "operationally_actionable", "current_bid", "bid_change_pct", "confidence", "delivery_signal", "delivery_source",
            "lifetime_acos", "recent_acos", "reason"]
 

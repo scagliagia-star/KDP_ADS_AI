@@ -72,7 +72,8 @@ def cap(conf: str, top: str) -> str:
     return conf if CONF_ORDER[conf] <= CONF_ORDER[top] else top
 
 
-def action_key(book_id: str, campaign_id: str, target: str | None, kind_override: str | None = None, term: str | None = None) -> str:
+def action_key(book_id: str, campaign_id: str, target: str | None, kind_override: str | None = None, term: str | None = None,
+               campaign_type: str | None = None) -> str:
     """Chiave stabile: book|campaign|kw:<target normalizzato> oppure asin:<ASIN> (categorie: cat:<normalizzato>)."""
     if kind_override == "neg":
         return f"{book_id}|{campaign_id}|negterm:{normalize_term(term)}"
@@ -81,6 +82,8 @@ def action_key(book_id: str, campaign_id: str, target: str | None, kind_override
         return f"{book_id}|{campaign_id}|asin:{a.upper()}"
     if target_type(target) == "PRODUCT_TARGET":
         return f"{book_id}|{campaign_id}|cat:{normalize_term(target)}"
+    if target_type(target, campaign_type) == "AUTO_TARGETING_GROUP":
+        return f"{book_id}|{campaign_id}|autogroup:{normalize_term(target)}"
     return f"{book_id}|{campaign_id}|kw:{normalize_term(target)}"
 
 
@@ -250,7 +253,7 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
     # dati per bid corrente e overlap (deterministici, stessa funzione del motore analitico)
     trows, srows = _load(conn, "target_rows", book_id, mp), _load(conn, "search_term_rows", book_id, mp)
     for r in srows:
-        r["target_type"] = target_type(r["target"])
+        r["target_type"] = target_type(r["target"], r.get("campaign_type"))
     bid_of = {}
     for t in trows:
         k = (t["campaign_id"], amz.target_identity(t["target"]))
@@ -273,23 +276,26 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
     # ---- raggruppamento in entita'
     ents: dict[str, Entity] = {}
 
-    def ent(campaign_id, target, kind=None, term=None):
-        key = action_key(book_id, campaign_id, target, kind, term)
+    def ent(campaign_id, target, kind=None, term=None, campaign_type=None):
+        key = action_key(book_id, campaign_id, target, kind, term, campaign_type)
         if key not in ents:
-            k = kind or ("asin" if product_asin(target) else "cat" if target_type(target) == "PRODUCT_TARGET" else "kw")
+            k = kind or ("asin" if product_asin(target) else "cat" if target_type(target) == "PRODUCT_TARGET"
+                         else "auto" if target_type(target, campaign_type) == "AUTO_TARGETING_GROUP" else "kw")
             ents[key] = Entity(key, campaign_id, k, target)
         return ents[key]
 
     for rec in recs:
+        ct = rec.get("campaign_type")
         if rec["report_type"] == "TARGETING":
-            (ent(rec["campaign_id"], rec["target"]).tgt_win if rec["report_scope"] == "DATE_RANGE"
-             else ent(rec["campaign_id"], rec["target"]).life).append(rec)
-        elif term_matches_target(rec["search_term"], rec["target"]):
-            ent(rec["campaign_id"], rec["target"]).st_win.append(rec)
+            (ent(rec["campaign_id"], rec["target"], campaign_type=ct).tgt_win if rec["report_scope"] == "DATE_RANGE"
+             else ent(rec["campaign_id"], rec["target"], campaign_type=ct).life).append(rec)
+        elif term_matches_target(rec["search_term"], rec["target"], ct):
+            ent(rec["campaign_id"], rec["target"], campaign_type=ct).st_win.append(rec)
         elif rec["recommended_action"] == "NEGATIVE_CANDIDATE":
-            ent(rec["campaign_id"], rec["target"], "neg", rec["search_term"]).neg.append(rec)
+            # negative su un search term REALE (il gruppo Auto resta il target genitore; mai una negative sul nome del gruppo)
+            ent(rec["campaign_id"], rec["target"], "neg", rec["search_term"], campaign_type=ct).neg.append(rec)
         else:
-            ent(rec["campaign_id"], rec["target"]).child.append(rec)
+            ent(rec["campaign_id"], rec["target"], campaign_type=ct).child.append(rec)
     n_life = sum(len(e.life) for e in ents.values())
     ds.accounting["lifetime_target_rows_used"] = n_life
     ds.accounting["target_window_rows_used"] = sum(len(e.tgt_win) for e in ents.values())
@@ -606,7 +612,7 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
                       "contesto, non guidano un secondo bid change")
 
     match_row = bid_of.get((e.campaign_id, ident))
-    tgt_type = target_type(e.target)
+    tgt_type = target_type(e.target, base_rec["campaign_type"])
 
     def v(ev, f):
         return None if ev is None else ev.rec[f]

@@ -36,7 +36,9 @@ def badges(*pairs) -> str:
 
 def decision_badges(d) -> str:
     actionable = bool(d.get("operationally_actionable"))
-    return badges((U.label_priority(d.get("priority")) if d.get("priority") else None, F.PRIORITY_TONE.get(d.get("priority"), "grey")),
+    auto = d.get("target_type") == "AUTO_TARGETING_GROUP"
+    return badges((U.label_target_type("AUTO_TARGETING_GROUP") if auto else None, "purple"),
+                  (U.label_priority(d.get("priority")) if d.get("priority") else None, F.PRIORITY_TONE.get(d.get("priority"), "grey")),
                   (U.label_action(d.get("final_action")), F.action_tone(d.get("final_action"))),
                   (f"Stato target: {U.label_status(d.get('target_status'))}", F.status_tone(d.get("target_status"))),
                   (f"{U.label_delivery(d.get('delivery_signal'))} · {U.label_delivery_source(d.get('delivery_source'))}",
@@ -61,6 +63,8 @@ def decision_card(st, d):
     with st.container(border=True):
         st.markdown(f"### {F.esc(d.get('campaign_id'))} · `{d.get('target')}`")
         st.markdown(decision_badges(d), unsafe_allow_html=True)
+        if d.get("target_type") == "AUTO_TARGETING_GROUP":
+            st.caption(f"{U.label_target_type('AUTO_TARGETING_GROUP')}: {U.AUTO_GROUPS_NOTE}")
         c = st.columns(4)
         c[0].metric("Bid attuale", F.money(d.get("current_bid")))
         c[1].metric("Variazione bid", F.bid_change(d.get("bid_change_pct")))

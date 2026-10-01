@@ -9,6 +9,7 @@ import streamlit as st  # noqa: E402
 import formatting as F  # noqa: E402
 import ui_labels as U  # noqa: E402
 from components import cards, sidebar, style  # noqa: E402
+from kdp_ads.metrics import AUTO_CAMPAIGN_TYPES  # noqa: E402
 
 ctx = cards.page_setup(st, "Panoramica campagne", lambda: sidebar.select_context(st))
 camps = ctx.repo.campaign_overview(ctx.book["book_id"], ctx.book.get("royalty_per_copy"), ctx.marketplace)
@@ -20,6 +21,8 @@ st.caption("Storico completo, ultimi 65 giorni e ultimi 30 giorni sono snapshot 
 for c in camps:
     with st.container(border=True):
         st.markdown(f"### {c['campaign_id']} · {c.get('campaign_type') or F.ND}")
+        if str(c.get("campaign_type") or "").upper() in AUTO_CAMPAIGN_TYPES:
+            st.info(f"Campagna con targeting automatico. {U.AUTO_GROUPS_NOTE}")
         if not c["windows"]:
             st.write("Nessuna finestra importata.")
             continue

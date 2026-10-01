@@ -33,7 +33,7 @@ def build_signals(target_rows: list[dict], st_rows: list[dict], ctx: BookCtx) ->
     for t in target_rows:
         if t["report_scope"] == "LIFETIME":
             life[(t["campaign_id"], normalize_term(t["target"]))].append(t)
-    recents = [("S", s) for s in st_rows if term_matches_target(s["search_term"], s["target"])]
+    recents = [("S", s) for s in st_rows if term_matches_target(s["search_term"], s["target"], s.get("campaign_type"))]
     recents += [("T", t) for t in target_rows if t["report_scope"] == "DATE_RANGE"]
     res, latest_for_life = {}, {}
     for kind, r in recents:
@@ -75,6 +75,8 @@ def analyze_overlaps(st_rows: list[dict], ctx: BookCtx) -> list[dict]:
     # aggrega per (campagna, termine): il termine puo' comparire con piu' target nella stessa campagna
     agg: dict = {}
     for s in st_rows:
+        if s.get("target_type") == "AUTO_TARGETING_GROUP":
+            continue            # i gruppi Auto non sono keyword: restano fuori dagli overlap keyword EXACT/PHRASE/...
         k = (s["campaign_id"], normalize_term(s["search_term"]))
         a = agg.setdefault(k, {"campaign_id": s["campaign_id"], "campaign_type": s["campaign_type"],
                                "term": k[1], "impressions": 0, "clicks": 0, "spend": 0, "orders": 0, "sales": 0,
