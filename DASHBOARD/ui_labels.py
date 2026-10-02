@@ -116,6 +116,14 @@ LAUNCH_KW_BUTTON = "GENERA PIANO KEYWORD"
 LAUNCH_KW_INTRO = ("Piano keyword Ads iniziale ricavato SOLO dai testi della bozza (titolo, sottotitolo, descrizione, keyword KDP, categorie). "
                    "Non usa volumi di ricerca né dati esterni e non crea nulla su Amazon: sono proposte da valutare a mano. Il piano viene salvato nella bozza.")
 LAUNCH_PROFILE_SECTION = "PROFILO DEL LIBRO"
+LAUNCH_TITLE_QUERY_SECTION = "TITOLO PROPRIO / QUERY DEL TITOLO"
+LAUNCH_TITLE_QUERY_NOTE = ("Query quasi identiche al titolo del nostro libro (BRANDED_SELF / TITLE_QUERY): non sono keyword commerciali generiche e non fanno "
+                           "parte delle keyword di lancio principali. Valutale solo come campagna brand/difensiva.")
+LAUNCH_SHOW_ALL = "Mostra tutte le keyword"
+LAUNCH_SHOW_LIMIT_NOTE = "Mostro le prime {n} su {tot} per punteggio finale: attiva «Mostra tutte le keyword» per vederle tutte."
+LAUNCH_SCORES_NOTE = ("Pertinenza = quanto la keyword copre i concetti commerciali del libro (sottotitolo, keyword KDP, categorie, descrizione); "
+                      "Mercato = volume, competizione, vendite e conferme dai dati Publisher Rocket realmente presenti (i colori Green/Yellow/Red non contano); "
+                      "Finale = la pertinenza viene prima e il mercato pesa fino al 30%, ma non può promuovere una keyword fuori tema.")
 LAUNCH_EXACT_SECTION = "KEYWORD EXACT CONSIGLIATE"
 LAUNCH_PHRASE_SECTION = "KEYWORD PHRASE CONSIGLIATE"
 LAUNCH_DISCOVERY_SECTION = "DISCOVERY"
@@ -123,7 +131,31 @@ LAUNCH_REJECTED_SECTION = "SCARTATE / DA NON USARE"
 LAUNCH_STALE_NOTE = "La bozza è cambiata dopo la generazione del piano keyword: rigeneralo per aggiornarlo."
 LAUNCH_CONFIDENCE_LABELS = {"HIGH": "Alta", "MEDIUM": "Media", "LOW": "Bassa"}
 LAUNCH_KW_SOURCE_LABELS = {"title": "titolo", "subtitle": "sottotitolo", "kdp_keyword": "keyword KDP", "category": "categoria",
-                           "description": "descrizione", "competitor": "competitor"}
+                           "description": "descrizione", "competitor": "competitor", "publisher_rocket": "Publisher Rocket"}
+LAUNCH_MATCH_LABELS = {"EXACT": "EXACT", "PHRASE": "PHRASE", "DISCOVERY": "DISCOVERY", "REJECT": "Scartata"}
+LAUNCH_RESEARCH_SECTION = "RICERCA COMPETITOR / PUBLISHER ROCKET"
+LAUNCH_RESEARCH_INTRO = ("Carica qui i file esportati da Publisher Rocket (CSV, XLSX o XLS). Il file resta sul tuo computer: viene letto in locale, nessuna rete, "
+                         "nessuna modifica su Amazon, a books.json, al database Ads o alla cartella INPUT. Prima viene sempre fatto un dry run; solo dopo puoi "
+                         "importarlo nella bozza (cartella LAUNCH/<bozza>/research/). Le colonne vengono riconosciute per nome: non serve un formato fisso.")
+LAUNCH_RESEARCH_UPLOAD = "Carica file Publisher Rocket (anche più file insieme)"
+LAUNCH_RESEARCH_DRY = "ANALIZZA TUTTI / DRY RUN"
+LAUNCH_RESEARCH_IMPORT = "IMPORTA FILE VALIDI NELLA BOZZA"
+LAUNCH_RESEARCH_BATCH_STATUS = {"DRY_RUN_OK": "VALIDO", "DUPLICATE_IN_BATCH": "DUPLICATO", "ALREADY_IMPORTED": "GIÀ IMPORTATO",
+                                "UNRECOGNIZED": "NON RICONOSCIUTO", "ERROR": "ERRORE"}
+LAUNCH_RESEARCH_BATCH_NOTE = ("Ogni file è analizzato separatamente: un file errato, duplicato o già importato resta escluso e non blocca gli altri. "
+                              "Verranno importati solo i file con stato VALIDO.")
+LAUNCH_RESEARCH_ENRICHED = "Competitor arricchito da Publisher Rocket"
+LAUNCH_RESEARCH_CANDIDATE = "Competitor candidato"
+LAUNCH_RESEARCH_CANDIDATE_NOTE = "ASIN presente nel file ma non tra i competitor della bozza: non viene aggiunto né validato automaticamente."
+LAUNCH_RESEARCH_STATUS_LABELS = {"DRY_RUN_OK": "Dry run riuscito: il file può essere importato", "SKIPPED_DUPLICATE": "File già importato in questa bozza (stesso contenuto)",
+                                 "UNRECOGNIZED": "File non riconosciuto: nessun import", "ERROR": "File non leggibile: nessun import"}
+LAUNCH_RESEARCH_FIELD_LABELS = {
+    "keyword": "Keyword", "asin": "ASIN", "title": "Titolo", "subtitle": "Sottotitolo", "author": "Autore", "price": "Prezzo", "avg_price": "Prezzo medio",
+    "reviews": "Recensioni", "review_count": "Recensioni", "avg_reviews": "Recensioni medie", "rating": "Valutazione", "bsr": "BSR (classifica vendite)",
+    "search_volume": "Ricerche stimate/mese", "search_volume_text": "Ricerche stimate/mese (testo)", "searches_color": "Colore ricerche",
+    "competition": "Punteggio competitivo", "competition_color": "Colore competizione", "title_count": "Titoli concorrenti", "avg_pages": "Pagine medie",
+    "pages": "Pagine", "avg_sales": "Vendite medie", "avg_monthly_earnings": "Guadagno mensile medio", "sales_month": "Vendite mensili stimate", "categories": "Categorie",
+    "marketplace": "Marketplace"}
 LAUNCH_COMPETITOR_CAMPAIGN = "Valuta campagna COMPETITOR"
 LAUNCH_EVIDENCE_SECTION = "EVIDENZA DELLE KEYWORD"
 LAUNCH_EVIDENCE_NOTE = ("Una keyword KDP ha più evidenza se compare in titolo, sottotitolo, altre keyword KDP e descrizione; se compare anche nei "
@@ -214,6 +246,14 @@ def label_launch_level(v):
 
 def label_launch_confidence(v):
     return _get(LAUNCH_CONFIDENCE_LABELS, v)
+
+
+def label_research_field(v):
+    return LAUNCH_RESEARCH_FIELD_LABELS.get(v, v)
+
+
+def label_match(v):
+    return LAUNCH_MATCH_LABELS.get(v, v)
 
 
 def label_kw_sources(sources):

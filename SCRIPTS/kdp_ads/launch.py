@@ -13,6 +13,9 @@ MODELLO DATI (un file JSON per bozza, schema_version 1):
   enrichment resta None finche' un provider esterno (interfaccia CompetitorProvider, oggi NullProvider: nessun dato) non lo valorizza;
   i dati mancanti non vengono mai inventati.
 
+RICERCA PUBLISHER ROCKET: chiave facoltativa "research" = {files:[{id, file_name, stored_as, normalized, sha256, format, kind, rows, imported_at}]}; i file
+originali e i dati normalizzati stanno in LAUNCH/<launch_id>/research/ (vedi kdp_ads.launch_research e DASHBOARD/ops/launch_ops.py).
+
 PIANO KEYWORD (V2): chiave facoltativa "keyword_plan" (vedi kdp_ads.launch_keywords), scritta SOLO nella bozza; books.json non si tocca.
 
 SALVATAGGIO: LAUNCH/<launch_id>.json (scrittura atomica: file temporaneo + os.replace). Nessun id viene sovrascritto da una bozza nuova."""
@@ -202,8 +205,9 @@ def build_plan(form: dict, existing: dict | None = None, now: str | None = None)
                      "kdp_keywords": kws, "categories": cats, "marketplace": mp, "currency": currency, "price": price,
                      "royalty_per_copy": royalty, "book_id": own_id},
             "competitors": comps}
-    if (existing or {}).get("keyword_plan"):               # il piano keyword salvato resta nella bozza (segnalato superato se gli ingressi cambiano)
-        plan["keyword_plan"] = existing["keyword_plan"]
+    for key in ("keyword_plan", "research"):               # piano keyword e ricerca importata restano nella bozza (piano segnalato superato se cambiano gli ingressi)
+        if (existing or {}).get(key):
+            plan[key] = existing[key]
     return plan, [], warnings
 
 

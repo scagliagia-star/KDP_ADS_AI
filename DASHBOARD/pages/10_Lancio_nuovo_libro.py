@@ -10,7 +10,7 @@ import streamlit as st  # noqa: E402
 import formatting as F  # noqa: E402
 import ui_labels as U  # noqa: E402
 from components import ops_ui  # noqa: E402
-from kdp_ads import launch, launch_keywords  # noqa: E402
+from kdp_ads import launch, launch_keywords, launch_research  # noqa: E402
 from ops import launch_ops, workspace  # noqa: E402
 
 
@@ -96,9 +96,138 @@ if flash:
     (st.success if flash["ok"] else st.error)(flash["msg"])
 
 # ---------------------------------------------------------------- piano keyword Ads iniziale (V2)
+def pr_metrics_text(e):
+    """Metriche Publisher Rocket realmente presenti per la keyword (nessun dato inventato: se mancano, trattino)."""
+    rs = (e.get("research") or {}).get("records") or []
+    parts = []
+    for r in rs[:1]:
+        for k, v in r.items():
+            if k in ("source_file", "marketplace", "extra", "competitor_asin") or v in (None, "", []):
+                continue
+            parts.append(f"{U.label_research_field(k)}: {', '.join(v) if isinstance(v, list) else v}")
+    return "; ".join(parts) if parts else F.ND
+
+
 def kw_rows(items):
-    return [{"Keyword": e["keyword"], "Fonte": U.label_kw_sources(e["source_types"]), "Confidenza": U.label_launch_confidence(e["confidence"]),
-             "Punteggio": e["evidence_score"], "Motivo": e["reason"]} for e in items]
+    return [{"Keyword": e["keyword"], "Match consigliato": U.label_match(e["recommended_match_type"]),
+             "Confidenza": U.label_launch_confidence(e["confidence"]), "Fonti": U.label_kw_sources(e["source_types"]),
+             "Pertinenza": e.get("relevance_score", e["evidence_score"]),
+             "Mercato": e.get("market_evidence_score"),                                  # vuoto = nessun dato di mercato (mai un valore inventato)
+             "Punteggio finale": e.get("final_launch_score", e["evidence_score"]),
+             "Metriche Publisher Rocket": pr_metrics_text(e), "Competitor a supporto": ", ".join(e.get("competitor_hits") or []) or F.ND,
+             "Motivo": e["reason"]} for e in items]
+
+
+SHOW_LIMITS = {"exact": 15, "phrase": 30, "discovery": 30, "rejected": 30}      # cosa si vede all'inizio; tutto resta nel piano salvato
+
+
+def show_dry_run(rep):
+    {"DRY_RUN_OK": st.success, "SKIPPED_DUPLICATE": st.warning}.get(rep["status"], st.error)(U.LAUNCH_RESEARCH_STATUS_LABELS.get(rep["status"], rep["status"]))
+    for p in rep.get("problems", []):
+        st.error(p)
+    if rep["status"] in ("UNRECOGNIZED", "ERROR"):
+        return
+    st.table({"Nome file": rep["file_name"], "Formato": rep["format"] + (f" (foglio {rep['sheet']})" if rep.get("sheet") else ""), "Righe": str(rep["rows"]),
+              "Tipo di contenuto": rep["kind"], "Keyword trovate": str(rep["keywords_found"]), "ASIN trovati": str(rep["asins_found"])})
+    st.markdown("**Colonne trovate**")
+    st.dataframe([{"Colonna nel file": c["header"] or F.ND, "Riconosciuta come": U.label_research_field(c["canonical"]) if c["canonical"] else "non riconosciuta (conservata come campo extra)"}
+                  for c in rep["columns"]], use_container_width=True, hide_index=True)
+    if rep["keywords_sample"]:
+        st.caption("Keyword trovate (prime 10): " + "; ".join(rep["keywords_sample"]))
+    if rep["asins_sample"]:
+        st.caption("ASIN trovati (primi 10): " + ", ".join(rep["asins_sample"]))
+    if rep["metrics_present"]:
+        st.markdown("**Metriche presenti** (numero di valori nel file)")
+        st.table({U.label_research_field(k): str(v) for k, v in rep["metrics_present"].items()})
+    for c in rep["competitors_enriched"]:
+        st.info(f"{U.LAUNCH_RESEARCH_ENRICHED}: {c['asin']}" + (f" ({c['title']})" if c.get("title") else ""))
+    for c in rep["competitor_candidates"]:
+        st.warning(f"{U.LAUNCH_RESEARCH_CANDIDATE}: {c['asin']}" + (f" ({c['title']})" if c.get("title") else "") + f" — {U.LAUNCH_RESEARCH_CANDIDATE_NOTE}")
+    kp = rep["keyword_preview"]
+    st.markdown(f"**Keyword pertinenti: {kp['pertinent']} · scartate: {kp['discarded']}** (anteprima rispetto al tema del libro)")
+    if kp["pertinent_sample"]:
+        st.caption("Pertinenti: " + "; ".join(f"{x['keyword']} → {x['match']}" for x in kp["pertinent_sample"]))
+    if kp["discarded_sample"]:
+        st.caption("Scartate: " + "; ".join(x["keyword"] for x in kp["discarded_sample"]))
+    for w in rep.get("warnings", []):
+        st.warning(w)
+
+
+# ---------------------------------------------------------------- ricerca competitor / Publisher Rocket
+if plan:
+    st.divider()
+    st.header(U.LAUNCH_RESEARCH_SECTION)
+    st.caption(U.LAUNCH_RESEARCH_INTRO)
+    cur = S["current_launch_id"]
+    n_up = S.get("kb_res_n", 0)
+    uploads = st.file_uploader(U.LAUNCH_RESEARCH_UPLOAD, type=["csv", "xlsx", "xls"], accept_multiple_files=True, key=f"kb_res_file_{suffix}_{n_up}")
+    files = [(f.name, f.getvalue()) for f in (uploads or [])]
+    if files:
+        st.caption(U.LAUNCH_RESEARCH_BATCH_NOTE)
+        # impronta del lotto: il dry run vale solo per QUESTI file e QUESTA bozza (se cambi i file va rifatto); sopravvive ai rerun
+        key = [cur, sorted((n, launch_research.sha256(d)) for n, d in files)]
+        if st.button(U.LAUNCH_RESEARCH_DRY, key=f"btn_res_dry_{suffix}"):
+            S["kb_res_batch"] = {"key": key, "rows": launch_ops.research_batch_dry_run(ws, cur, files).data["rows"]}
+        batch = S.get("kb_res_batch")
+        batch = batch if (batch and batch["key"] == key) else None
+        n_valid = sum(1 for r in batch["rows"] if r["status"] == "DRY_RUN_OK") if batch else 0
+        if batch:
+            st.dataframe([{"File": r["file_name"], "Formato": r["format"] or F.ND, "Righe": r["rows"] if r["rows"] is not None else F.ND,
+                           "Keyword trovate": r["keywords_found"], "ASIN trovati": r["asins_found"],
+                           "Metriche riconosciute": ", ".join(U.label_research_field(m) for m in r["metrics"]) or F.ND,
+                           "Stato": U.LAUNCH_RESEARCH_BATCH_STATUS.get(r["status"], r["status"]), "Errore": r["error"] or ""} for r in batch["rows"]],
+                         use_container_width=True, hide_index=True)
+            for r in batch["rows"]:
+                if r["status"] == "DRY_RUN_OK":
+                    with st.expander(f"Dettaglio dry run: {r['file_name']}"):
+                        show_dry_run(r["report"])
+            st.markdown(f"**File validi: {n_valid} su {len(batch['rows'])}**")
+        else:
+            st.info("Esegui il dry run: l'import è possibile solo dopo un dry run, e solo per i file validi.")
+        if st.button(U.LAUNCH_RESEARCH_IMPORT, key=f"btn_res_import_{suffix}", disabled=not n_valid):
+            r = launch_ops.import_research_batch(ws, cur, files)
+            if r.ok:
+                S["kb_res_summary"] = {"launch_id": cur, **r.data["summary"]}
+                S["kb_flash"] = {"ok": True, "msg": f"{r.message} ({r.data['summary']['files_imported']} su {r.data['summary']['files_loaded']}) in LAUNCH/{cur}/research/", "warnings": []}
+                S.pop("kb_res_batch", None)
+                S["kb_res_n"] = n_up + 1                                                          # svuota il caricamento file
+                st.rerun()
+            for e in r.errors:
+                st.error(e)
+    summ = S.get("kb_res_summary")
+    if summ and summ.get("launch_id") == cur:                                                     # riepilogo dell'ultimo import, resta dopo il rerun
+        st.markdown("**Riepilogo ultimo import**")
+        c = st.columns(4)
+        c[0].metric("File caricati", summ["files_loaded"])
+        c[1].metric("File validi", summ["files_valid"])
+        c[2].metric("File importati", summ["files_imported"])
+        c[3].metric("File con errore", summ["errors"])
+        c = st.columns(4)
+        c[0].metric("Duplicati nel lotto", summ["duplicates"])
+        c[1].metric("Già importati", summ["already_imported"])
+        c[2].metric("Keyword totali trovate", summ["keywords_total"])
+        c[3].metric("Keyword uniche", summ["keywords_unique"])
+        c = st.columns(2)
+        c[0].metric(U.LAUNCH_RESEARCH_ENRICHED + " (n.)", len(summ["competitors_enriched"]))
+        c[1].metric(U.LAUNCH_RESEARCH_CANDIDATE + " (n.)", len(summ["competitors_candidates"]))
+        st.dataframe([{"File": f["file_name"], "Stato": U.LAUNCH_RESEARCH_BATCH_STATUS.get(f["status"], f["status"]), "Keyword trovate": f["keywords_found"],
+                       "Errore": f["error"] or ""} for f in summ["files"]], use_container_width=True, hide_index=True)
+    ov = launch_ops.research_overview(ws, cur)
+    if ov:
+        st.markdown("**File importati nella bozza**")
+        st.dataframe([{"File": f["file_name"], "Formato": f["format"], "Righe": f["rows"], "Keyword": f["keywords"], "ASIN": f["competitors"],
+                       "Importato il": f["imported_at"], "Salvato come": f"research/{f['stored_as']}"} for f in ov["files"]],
+                     use_container_width=True, hide_index=True)
+        c = st.columns(3)
+        c[0].metric("Keyword trovate", ov["keywords_total"])
+        c[1].metric("Keyword pertinenti", ov["keywords_pertinent"])
+        c[2].metric("Keyword scartate", ov["keywords_discarded"])
+        if ov["metrics_present"]:
+            st.caption("Metriche disponibili: " + ", ".join(f"{U.label_research_field(k)} ({v})" for k, v in ov["metrics_present"].items()))
+        for e in ov["enriched"]:
+            st.success(f"{U.LAUNCH_RESEARCH_ENRICHED}: {e['asin']}" + (f" ({e['title']})" if e.get("title") else ""))
+        for e in ov["candidates"]:
+            st.warning(f"{U.LAUNCH_RESEARCH_CANDIDATE}: {e['asin']}" + (f" ({e['title']})" if e.get("title") else "") + f" — {U.LAUNCH_RESEARCH_CANDIDATE_NOTE}")
 
 
 if plan:
@@ -124,21 +253,33 @@ if plan:
                   "Prezzo / royalty": f"{pr['price']} / {pr['royalty_per_copy']}",
                   "ACOS di pareggio (royalty ÷ prezzo)": f"{pr['break_even_acos']}%" if pr["break_even_acos"] is not None else F.ND,
                   "Categorie": "; ".join(pr["categories"]) or F.ND, "Keyword KDP": "; ".join(pr["kdp_keywords"]) or F.ND,
-                  "Termini tematici principali": ", ".join(pr["main_terms"]) or F.ND,
+                  "Tema del titolo (TITLE_TOPIC)": ", ".join(pr.get("title_topic") or []) or F.ND,
+                  "Tema commerciale di ricerca (COMMERCIAL_SEARCH_TOPIC)": ", ".join(pr.get("commercial_search_topic") or pr["main_terms"]) or F.ND,
+                  "Titolo creativo": "sì: le keyword si valutano sul tema commerciale, non sulle parole del titolo" if pr.get("title_creative") else "no",
                   "Competitor": f"{pr['competitors_valid']} validati, {pr['competitors_unverified']} non verificati, {pr['competitors_with_data']} con dati"})
+        st.caption(U.LAUNCH_SCORES_NOTE)
+        show_all = st.checkbox(U.LAUNCH_SHOW_ALL, key=f"kb_show_all_{suffix}")
         for title, key, empty in ((U.LAUNCH_EXACT_SECTION, "exact", "Nessuna keyword abbastanza pertinente per EXACT: non riempio la lista."),
                                   (U.LAUNCH_PHRASE_SECTION, "phrase", "Nessuna keyword PHRASE consigliata."),
                                   (U.LAUNCH_DISCOVERY_SECTION, "discovery", "Nessuna keyword da testare in discovery."),
                                   (U.LAUNCH_REJECTED_SECTION, "rejected", "Nessuna keyword scartata.")):
-            st.header(f"{title} ({len(kp[key])})")
-            if kp[key]:
-                st.dataframe(kw_rows(kp[key]), use_container_width=True, hide_index=True)
+            items = kp.get(key) or []
+            shown = items if show_all else items[:SHOW_LIMITS[key]]
+            st.header(f"{title} ({len(items)})")
+            if items:
+                st.dataframe(kw_rows(shown), use_container_width=True, hide_index=True)
+                if len(shown) < len(items):
+                    st.caption(U.LAUNCH_SHOW_LIMIT_NOTE.format(n=len(shown), tot=len(items)))
             else:
                 st.info(empty)
+        if kp.get("title_queries"):
+            st.header(f"{U.LAUNCH_TITLE_QUERY_SECTION} ({len(kp['title_queries'])})")
+            st.caption(U.LAUNCH_TITLE_QUERY_NOTE)
+            st.dataframe(kw_rows(kp["title_queries"]), use_container_width=True, hide_index=True)
         if kp.get("dropped_candidates"):
-            st.caption(f"{kp['dropped_candidates']} frasi derivate dai testi (rumore, frasi di marketing) non sono state elencate.")
+            st.caption(f"{kp['dropped_candidates']} frasi derivate dai testi (frammenti incompleti, frasi di marketing) non sono state elencate.")
         for lim in kp["limits"]:
-            st.caption("Limite: " + lim)
+            st.caption("Nota: " + lim)
 
 # ---------------------------------------------------------------- sezioni di sola visualizzazione sulla bozza salvata
 if plan:

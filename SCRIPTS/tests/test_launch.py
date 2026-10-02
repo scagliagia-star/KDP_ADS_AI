@@ -287,6 +287,7 @@ class PageTests(unittest.TestCase):
         st.selectbox.side_effect = lambda label, options, index=0, **k: values.get(label, list(options)[index])
         st.form_submit_button.return_value = submit
         st.button.return_value = values.get("__button__", False)
+        st.file_uploader.return_value = None
         st.stop.side_effect = SystemExit
         old_env = {k: os.environ.get(k) for k in ("KDP_ADS_ROOT",)}
         os.environ["KDP_ADS_ROOT"] = str(root)
