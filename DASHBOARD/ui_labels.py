@@ -21,6 +21,7 @@ NAV_PAGES = [
     ("pages/5_Erogazione.py", "Erogazione"),
     ("pages/6_Confronto_tra_campagne.py", "Confronto tra campagne"),
     ("pages/9_Opportunita_Search_Term.py", "Opportunità Search Term"),
+    ("pages/10_Lancio_nuovo_libro.py", "Lancio nuovo libro"),
     ("pages/7_Gestione_libri.py", "Gestione libri"),
     ("pages/8_Importa_report.py", "Importa report"),
 ]
@@ -100,6 +101,37 @@ OPP_LABELS = {
     "WATCH_SEARCH_TERM": "Monitora search term",
     "NO_ACTION": "Nessuna azione",
 }
+# ------------------------------------------------------------------ Lancio nuovo libro (bozza locale, nessuna rete)
+LAUNCH_PAGE_TITLE = "Lancio nuovo libro"
+LAUNCH_INTRO = ("Prepara la bozza di lancio di un nuovo libro: titolo, sottotitolo, descrizione, 7 keyword KDP, categorie, marketplace, prezzo, "
+                "royalty e fino a 5 ASIN competitor scelti da te. Tutto resta nel file locale LAUNCH\\<bozza>.json: nessuna rete, nessuna modifica "
+                "su Amazon, nessuna campagna creata.")
+LAUNCH_COMPETITOR_SECTION = "COMPETITOR DI RIFERIMENTO"
+LAUNCH_COMPETITOR_NOTE = ("Competitor fornito dall'utente (di solito scelto con Publisher Rocket), non scoperto automaticamente. "
+                          "VALIDATO = controlli formali locali superati (formato ASIN, stesso marketplace, nessun duplicato): "
+                          "l'esistenza su Amazon e l'adeguatezza come competitor non sono verificate.")
+LAUNCH_SOURCE_LABELS = {"USER_COMPETITOR_ASIN": "Fornito dall'utente"}
+LAUNCH_STRUCTURE_SECTION = "STRUTTURA CAMPAGNE CONSIGLIATA"
+LAUNCH_KW_BUTTON = "GENERA PIANO KEYWORD"
+LAUNCH_KW_INTRO = ("Piano keyword Ads iniziale ricavato SOLO dai testi della bozza (titolo, sottotitolo, descrizione, keyword KDP, categorie). "
+                   "Non usa volumi di ricerca né dati esterni e non crea nulla su Amazon: sono proposte da valutare a mano. Il piano viene salvato nella bozza.")
+LAUNCH_PROFILE_SECTION = "PROFILO DEL LIBRO"
+LAUNCH_EXACT_SECTION = "KEYWORD EXACT CONSIGLIATE"
+LAUNCH_PHRASE_SECTION = "KEYWORD PHRASE CONSIGLIATE"
+LAUNCH_DISCOVERY_SECTION = "DISCOVERY"
+LAUNCH_REJECTED_SECTION = "SCARTATE / DA NON USARE"
+LAUNCH_STALE_NOTE = "La bozza è cambiata dopo la generazione del piano keyword: rigeneralo per aggiornarlo."
+LAUNCH_CONFIDENCE_LABELS = {"HIGH": "Alta", "MEDIUM": "Media", "LOW": "Bassa"}
+LAUNCH_KW_SOURCE_LABELS = {"title": "titolo", "subtitle": "sottotitolo", "kdp_keyword": "keyword KDP", "category": "categoria",
+                           "description": "descrizione", "competitor": "competitor"}
+LAUNCH_COMPETITOR_CAMPAIGN = "Valuta campagna COMPETITOR"
+LAUNCH_EVIDENCE_SECTION = "EVIDENZA DELLE KEYWORD"
+LAUNCH_EVIDENCE_NOTE = ("Una keyword KDP ha più evidenza se compare in titolo, sottotitolo, altre keyword KDP e descrizione; se compare anche nei "
+                        "competitor (dati pubblici) il livello sale di uno. Finché non è collegato un provider esterno non ci sono dati dei competitor: "
+                        "nessun bonus e nessun dato inventato.")
+LAUNCH_EVIDENCE_SOURCE_LABELS = {"title": "titolo", "subtitle": "sottotitolo", "kdp_keywords": "keyword KDP", "description": "descrizione"}
+LAUNCH_LEVEL_LABELS = {"NONE": "Nessuna", "LOW": "Bassa", "MEDIUM": "Media", "HIGH": "Alta", "VERY_HIGH": "Molto alta"}
+LAUNCH_PROVIDER_NOTE = "Arricchimento esterno (titolo, categorie, prezzo, recensioni dei competitor): non disponibile, nessun provider collegato."
 OPP_PAGE_TITLE = "Opportunità Search Term"
 OPP_INTRO = ("Suggerimenti manuali ricavati dai search term reali (query digitate dagli utenti) di PHRASE, Auto e altre campagne. "
              "Sono separati dalle decisioni di bid: nessuna campagna, keyword o negativa viene creata o modificata automaticamente.")
@@ -174,6 +206,22 @@ def label_delivery_source(v):
 
 def label_target_type(v):
     return _get(TARGET_TYPE_LABELS, v)
+
+
+def label_launch_level(v):
+    return _get(LAUNCH_LEVEL_LABELS, v)
+
+
+def label_launch_confidence(v):
+    return _get(LAUNCH_CONFIDENCE_LABELS, v)
+
+
+def label_kw_sources(sources):
+    return ", ".join(LAUNCH_KW_SOURCE_LABELS.get(s, s) for s in sources) or "nessuna"
+
+
+def label_launch_sources(sources):
+    return ", ".join(LAUNCH_EVIDENCE_SOURCE_LABELS.get(s, s) for s in sources) or "nessuna"
 
 
 def label_opportunity(v):
