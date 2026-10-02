@@ -63,6 +63,16 @@ class Rec:
     def __getitem__(self, i):
         return Rec(self._log, self._name + "[]")
 
+    # st.session_state e' un Rec: le pagine possono scrivervi, testare l'appartenenza e iterare (senza __iter__/__contains__ `in` non termina mai)
+    def __setitem__(self, k, v):
+        pass
+
+    def __contains__(self, k):
+        return False
+
+    def __iter__(self):
+        return iter(())
+
 
 def strings(obj):
     if isinstance(obj, str):

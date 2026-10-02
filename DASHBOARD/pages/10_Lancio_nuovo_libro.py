@@ -19,16 +19,20 @@ S = st.session_state
 ops_ui.setup(st, U.LAUNCH_PAGE_TITLE)
 st.caption(U.LAUNCH_INTRO)
 
-# ---------------------------------------------------------------- scelta della bozza
+# ---------------------------------------------------------------- scelta della bozza (la selezione vive in st.session_state)
+# kb_launch_pick = valore del selectbox (launch_id o None per "Nuova bozza"); la sua chiave di stato NON si puo' modificare dopo che il widget e'
+# stato creato in questa esecuzione: dopo un salvataggio si scrive kb_pending_pick, si fa st.rerun() e qui, PRIMA del widget, lo si applica.
+# current_launch_id / selected_launch_id = bozza corrente: la usano "SALVA BOZZA" (aggiorna) e "GENERA PIANO KEYWORD" (stesso file, mai nuove bozze).
 plans = launch_ops.list_plans(ws)
 NEW = "Nuova bozza"
-labels = {NEW: None}
-for p in plans:
-    labels[f"{p['title'] or '(bozza non leggibile)'} · {p['marketplace'] or F.ND} · {p['launch_id']}"] = p["launch_id"]
-current_id = S.get("kb_launch_loaded")
-default_label = next((k for k, v in labels.items() if v == current_id), NEW)
-choice = st.selectbox("Bozza di lancio", list(labels), index=list(labels).index(default_label), key="kb_launch_pick")
-launch_id = labels[choice]
+titles = {p["launch_id"]: f"{p['title'] or '(bozza non leggibile)'} · {p['marketplace'] or F.ND} · {p['launch_id']}" for p in plans}
+if "kb_pending_pick" in S:
+    S["kb_launch_pick"] = S.pop("kb_pending_pick")
+if S.get("kb_launch_pick") not in titles:               # bozza inesistente (file rimosso): torna a "Nuova bozza"
+    S["kb_launch_pick"] = None
+choice = st.selectbox("Bozza di lancio", [None, *titles], key="kb_launch_pick", format_func=lambda v: NEW if v is None else titles[v])
+launch_id = choice
+S["selected_launch_id"] = S["current_launch_id"] = launch_id
 plan = launch_ops.get_plan(ws, launch_id) if launch_id else None
 for p in plans:
     if p["error"]:
@@ -73,17 +77,23 @@ if submitted:
     form = {"title": title, "subtitle": subtitle, "description": description, "kdp_keywords": [k for k in kw_inputs if str(k).strip()],
             "categories": categories, "marketplace": (mp_other or "").strip() or mp_sel, "currency": currency, "price": price,
             "royalty_per_copy": royalty, "book_id": own_asin, "competitors": comp_inputs}
-    r = launch_ops.save_form(ws, form, launch_id)
+    r = launch_ops.save_form(ws, form, launch_id)         # launch_id None = bozza nuova; altrimenti aggiorna ESPLICITAMENTE la stessa
+    if r.ok:
+        saved = r.data["plan"]["launch_id"]
+        S["current_launch_id"] = saved
+        S["kb_pending_pick"] = saved                      # la bozza appena salvata resta selezionata dopo il rerun
+        S["kb_flash"] = {"ok": True, "msg": f"{r.message}: {saved} (LAUNCH/{saved}.json)", "warnings": (r.data or {}).get("warnings", [])}
+        st.rerun()
     for w in (r.data or {}).get("warnings", []):
         st.warning(w)
-    if r.ok:
-        plan = r.data["plan"]
-        S["kb_launch_loaded"] = plan["launch_id"]
-        st.success(f"{r.message}: {plan['launch_id']} (LAUNCH\\{plan['launch_id']}.json)")
-        book, comps = plan["book"], plan["competitors"]
-    else:
-        for e in r.errors:
-            st.error(e)
+    for e in r.errors:
+        st.error(e)
+
+flash = S.pop("kb_flash", None)                           # esito dell'ultima operazione, mostrato una sola volta dopo il rerun
+if flash:
+    for w in flash.get("warnings", []):
+        st.warning(w)
+    (st.success if flash["ok"] else st.error)(flash["msg"])
 
 # ---------------------------------------------------------------- piano keyword Ads iniziale (V2)
 def kw_rows(items):
@@ -95,10 +105,10 @@ if plan:
     st.divider()
     st.caption(U.LAUNCH_KW_INTRO)
     if st.button(U.LAUNCH_KW_BUTTON, key=f"btn_kwplan_{suffix}"):
-        r = launch_ops.generate_keyword_plan(ws, plan["launch_id"])
+        r = launch_ops.generate_keyword_plan(ws, S["current_launch_id"])        # la bozza corrente: stesso file, nessuna bozza nuova
         if r.ok:
-            plan = r.data["plan"]
-            st.success(f"{r.message} (LAUNCH/{plan['launch_id']}.json)")
+            S["kb_flash"] = {"ok": True, "msg": f"{r.message} (LAUNCH/{S['current_launch_id']}.json)", "warnings": []}
+            st.rerun()                                                          # la selezione resta (kb_launch_pick) e il piano si ricarica dal file
         else:
             for e in r.errors:
                 st.error(e)

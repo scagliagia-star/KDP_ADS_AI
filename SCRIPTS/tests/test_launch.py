@@ -320,6 +320,8 @@ class PageTests(unittest.TestCase):
             self.assertEqual(plan["competitors"][0]["source"], "USER_COMPETITOR_ASIN")
             self.assertEqual(plan["competitors"][0]["status"], "VALIDATO")
             self.assertEqual(sorted(p.name for p in root.iterdir()), ["CONFIG", "LAUNCH"])     # niente INPUT/DB/campagne
+            self.assertTrue([c for c in st.method_calls if c[0] == "rerun"])                   # dopo il salvataggio: rerun con la bozza selezionata
+            st = self.render(root, {"Bozza di lancio": files[0].stem})                        # il rerun mostra la bozza salvata
             txt = str(st.mock_calls)
             for needle in ("COMPETITOR DI RIFERIMENTO", "STRUTTURA CAMPAGNE CONSIGLIATA", "Valuta campagna COMPETITOR", "Fornito dall'utente", "EVIDENZA DELLE KEYWORD", "dati non disponibili"):
                 self.assertIn(needle, txt)

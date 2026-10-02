@@ -410,17 +410,167 @@ class StorageAndPageTests(unittest.TestCase):
     def test_page_shows_all_sections_and_saves_plan(self):
         import test_launch as TL
         lid = self.saved(competitors=[{"asin": ASIN_A}])
-        label = f"Crochet Flowers: Create Beautiful, Balanced Projects with Confidence · US · {lid}"
         page = TL.PageTests()
-        st = page.render(self.root, {"Bozza di lancio": label, "__button__": True})
-        txt = str(st.mock_calls)
+        st = page.render(self.root, {"Bozza di lancio": lid, "__button__": True})              # clic su GENERA PIANO KEYWORD
+        self.assertTrue([c for c in st.method_calls if c[0] == "rerun"])
+        self.assertIn("keyword_plan", json.loads((self.root / "LAUNCH" / f"{lid}.json").read_text(encoding="utf-8")))
+        st2 = page.render(self.root, {"Bozza di lancio": lid})                                 # il rerun mostra il piano salvato
+        txt = str(st2.mock_calls)
         for needle in ("PROFILO DEL LIBRO", "KEYWORD EXACT CONSIGLIATE", "KEYWORD PHRASE CONSIGLIATE", "DISCOVERY", "SCARTATE / DA NON USARE",
                        "COMPETITOR DI RIFERIMENTO", "STRUTTURA CAMPAGNE CONSIGLIATA", "crochet flowers", "Motivo", "Confidenza", "Fonte"):
             self.assertIn(needle, txt)
-        self.assertIn("keyword_plan", json.loads((self.root / "LAUNCH" / f"{lid}.json").read_text(encoding="utf-8")))
-        st2 = page.render(self.root, {"Bozza di lancio": label})                              # senza clic: mostra il piano salvato
-        self.assertIn("KEYWORD EXACT CONSIGLIATE", str(st2.mock_calls))
         self.assertEqual(self.sha(), hashlib.sha256(self.books.read_bytes()).hexdigest())
+
+
+try:
+    from streamlit.testing.v1 import AppTest
+except Exception:                                                                              # pragma: no cover
+    AppTest = None
+
+PAGE = ROOT / "DASHBOARD" / "pages" / "10_Lancio_nuovo_libro.py"
+SECTIONS = ("PROFILO DEL LIBRO", "KEYWORD EXACT CONSIGLIATE", "KEYWORD PHRASE CONSIGLIATE", "DISCOVERY", "SCARTATE / DA NON USARE",
+            "STRUTTURA CAMPAGNE CONSIGLIATA")
+
+
+@unittest.skipIf(AppTest is None, "streamlit non installato")
+class LaunchPageStateTests(unittest.TestCase):
+    """Pagina vera (AppTest): selezione della bozza e piano keyword stabili dopo salvataggio, genera piano e rerun."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / "CONFIG").mkdir()
+        self.books = self.root / "CONFIG" / "books.json"
+        self.books.write_text(json.dumps([{"book_id": "X1", "title": "T"}]), encoding="utf-8")
+        self.books_sha = hashlib.sha256(self.books.read_bytes()).hexdigest()
+        os.environ["KDP_ADS_ROOT"] = str(self.root)
+        self.addCleanup(os.environ.pop, "KDP_ADS_ROOT", None)
+        self.at = AppTest.from_file(str(PAGE), default_timeout=60).run()
+        self.assertFalse(self.at.exception)
+
+    # --- helper
+    def field(self, label):
+        return [x for x in self.at.text_input if x.label == label][0]
+
+    def button(self, label):
+        return [b for b in self.at.button if b.label == label][0]
+
+    def picker(self):
+        return [s for s in self.at.selectbox if s.label == "Bozza di lancio"][0]
+
+    def picked(self):
+        return self.picker().value
+
+    def drafts(self):
+        d = self.root / "LAUNCH"
+        return sorted(p.name for p in d.glob("*.json")) if d.is_dir() else []
+
+    def headers(self):
+        return [h.value for h in self.at.header]
+
+    def fill_and_save(self):
+        self.field("Titolo").set_value("Crochet Flowers")
+        self.field("Prezzo").set_value("16.99")
+        self.field("Royalty per copia").set_value("7.34")
+        self.field("Keyword 1").set_value("crochet flowers")
+        self.field("Keyword 2").set_value("crochet bouquet")
+        self.button("SALVA BOZZA LANCIO").click().run()
+        self.assertFalse(self.at.exception)
+
+    def plan_json(self, name):
+        return json.loads((self.root / "LAUNCH" / name).read_text(encoding="utf-8"))
+
+    # --- test
+    def test_new_draft_save_keeps_the_created_draft_selected(self):
+        self.assertIsNone(self.picked())                                                       # all'inizio: "Nuova bozza"
+        self.fill_and_save()
+        files = self.drafts()
+        self.assertEqual(len(files), 1)
+        lid = files[0][:-5]
+        self.assertEqual(self.picked(), lid)                                                   # la bozza appena creata e' selezionata
+        self.assertEqual(self.at.session_state["current_launch_id"], lid)
+        self.assertEqual(self.at.session_state["selected_launch_id"], lid)
+        self.assertTrue(any("Bozza di lancio salvata" in s.value for s in self.at.success))
+        self.assertIn("GENERA PIANO KEYWORD", [b.label for b in self.at.button])               # ora il pulsante e' disponibile
+
+    def test_generate_plan_updates_same_draft_without_duplicates(self):
+        self.fill_and_save()
+        lid = self.drafts()[0][:-5]
+        before = self.plan_json(f"{lid}.json")
+        self.assertNotIn("keyword_plan", before)
+        self.button("GENERA PIANO KEYWORD").click().run()
+        self.assertFalse(self.at.exception)
+        self.assertEqual(self.picked(), lid)                                                   # stessa bozza, non torna a "Nuova bozza"
+        self.assertEqual(self.drafts(), [f"{lid}.json"])                                       # nessun _2, _3
+        after = self.plan_json(f"{lid}.json")
+        self.assertIn("keyword_plan", after)
+        self.assertEqual(after["launch_id"], lid)
+        self.assertEqual(after["created_at"], before["created_at"])
+        self.assertEqual(after["book"], before["book"])                                        # i dati della bozza non cambiano
+        self.assertIs(after["keyword_plan"]["campaigns"]["AUTO"]["keywords_required"], False)
+
+    def test_plan_is_rendered_right_after_generation_and_survives_reruns(self):
+        self.fill_and_save()
+        lid = self.drafts()[0][:-5]
+        self.assertFalse(set(SECTIONS[:-1]) & set(self.headers()))                              # prima: nessuna sezione del piano keyword
+        self.button("GENERA PIANO KEYWORD").click().run()
+        for _ in range(3):                                                                     # rerun successivi (anche senza clic)
+            heads = " | ".join(self.headers())
+            for s in SECTIONS:
+                self.assertIn(s, heads)
+            self.assertEqual(self.picked(), lid)
+            self.at.run()
+        self.assertEqual(self.drafts(), [f"{lid}.json"])
+
+    def test_generate_twice_still_one_file(self):
+        self.fill_and_save()
+        lid = self.drafts()[0][:-5]
+        for _ in range(2):
+            self.button("GENERA PIANO KEYWORD").click().run()
+            self.assertEqual(self.picked(), lid)
+        self.assertEqual(self.drafts(), [f"{lid}.json"])
+
+    def test_saving_again_updates_the_same_draft(self):
+        self.fill_and_save()
+        lid = self.drafts()[0][:-5]
+        self.field("Sottotitolo").set_value("Easy projects")
+        self.button("SALVA BOZZA LANCIO").click().run()                                        # secondo salvataggio = aggiornamento esplicito
+        self.assertEqual(self.drafts(), [f"{lid}.json"])
+        self.assertEqual(self.plan_json(f"{lid}.json")["book"]["subtitle"], "Easy projects")
+        self.assertEqual(self.picked(), lid)
+
+    def test_manual_selection_and_new_draft_still_work(self):
+        self.fill_and_save()
+        first = self.drafts()[0][:-5]
+        self.picker().set_value(None).run()                                                    # l'utente sceglie "Nuova bozza"
+        self.assertIsNone(self.picked())
+        self.assertNotIn("GENERA PIANO KEYWORD", [b.label for b in self.at.button])
+        self.field("Titolo").set_value("Altro libro")
+        self.field("Prezzo").set_value("9.99")
+        self.field("Royalty per copia").set_value("3.5")
+        self.button("SALVA BOZZA LANCIO").click().run()
+        files = self.drafts()
+        self.assertEqual(len(files), 2)                                                        # una bozza esplicitamente nuova
+        second = [f[:-5] for f in files if f[:-5] != first][0]
+        self.assertEqual(self.picked(), second)
+
+    def test_validation_error_keeps_state_and_saves_nothing(self):
+        self.field("Titolo").set_value("")
+        self.button("SALVA BOZZA LANCIO").click().run()
+        self.assertEqual(self.drafts(), [])
+        self.assertIsNone(self.picked())
+        self.assertTrue(self.at.error)
+
+    def test_no_books_json_db_or_network(self):
+        with mock.patch("socket.getaddrinfo", side_effect=AssertionError("rete usata")), \
+                mock.patch("socket.create_connection", side_effect=AssertionError("rete usata")):
+            self.fill_and_save()
+            self.button("GENERA PIANO KEYWORD").click().run()
+        self.assertFalse(self.at.exception)
+        self.assertEqual(hashlib.sha256(self.books.read_bytes()).hexdigest(), self.books_sha)   # books.json invariato
+        self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["CONFIG", "LAUNCH"])     # nessun DB Ads, INPUT, OUTPUT, LOGS
+        self.assertEqual(sorted(p.name for p in (self.root / "CONFIG").iterdir()), ["books.json"])
 
 
 class SafetyTests(unittest.TestCase):
