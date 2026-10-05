@@ -29,7 +29,7 @@ from . import amazon as amz
 from . import registry
 from .analysis import _load
 from .crosscampaign import analyze_overlaps_by_period
-from .metrics import Metrics, compute_metrics, normalize_term, product_asin, set_currency, sym, target_type, term_matches_target
+from .metrics import Metrics, compute_metrics, normalize_term, product_asin, product_kind, set_currency, sym, target_type, term_matches_target
 from .rules import CONF_ORDER, ctx_from_book, load_rules, priority
 from . import windows as win
 from .snapshots import days_inclusive, period_id as make_period_id, window_label, window_role
@@ -47,6 +47,23 @@ PAUSED_BLOCKED = frozenset(list(STEP_OF) + ["BID_UP_5_CANDIDATE", "BID_UP_10_CAN
 OPERATIONAL_ACTIONS = frozenset(list(STEP_OF) + [REVIEW, "NEGATIVE_CANDIDATE"])
 # mappatura ESPLICITA dello stato del Target report (prima colonna 'Stato'); nessun altro valore viene dedotto
 TARGET_STATUS_MAP = {"ABILITATO": "ENABLED", "IN PAUSA": "PAUSED"}
+
+
+def bid_txt(row) -> str:
+    return "n/d" if not row or row.get("bid") is None else format(row["bid"], ".2f")
+
+
+def _mild_deterioration(L, P, bid, ctx, cfg) -> bool:
+    """C4B: NON ridurre l'offerta in modo meccanico (monitora) quando TUTTE queste condizioni valgono (soglie in rules.json -> decision):
+      - lo storico e' profittevole: ACOS lifetime sopra l'obiettivo ma <= pareggio, con scostamento piccolo: ACOS <= obiettivo x (1 + mild_max_gap_pct/100);
+      - l'offerta attuale e' gia' molto bassa: <= mild_low_bid_royalty_frac x royalty;
+      - il peggioramento recente ha poca evidenza: spesa recente < mild_recent_spend_mult x royalty (perdita ancora contenuta)."""
+    if not cfg.get("mild_monitor_enabled", True) or L is None or P is None or bid is None or L.m.acos is None:
+        return False
+    return bool(ctx.target_acos < L.m.acos <= ctx.break_even_acos
+                and L.m.acos <= ctx.target_acos * (1 + cfg["mild_max_gap_pct"] / 100.0)
+                and bid <= cfg["mild_low_bid_royalty_frac"] * ctx.royalty
+                and P.m.spend < cfg["mild_recent_spend_mult"] * ctx.royalty)
 
 
 def map_target_status(raw_json) -> str:
@@ -78,8 +95,8 @@ def action_key(book_id: str, campaign_id: str, target: str | None, kind_override
     if kind_override == "neg":
         return f"{book_id}|{campaign_id}|negterm:{normalize_term(term)}"
     a = product_asin(target)
-    if a:
-        return f"{book_id}|{campaign_id}|asin:{a.upper()}"
+    if a:                                                  # asin= resta 'asin:' (chiavi storiche); asin-expanded= ha la propria chiave
+        return f"{book_id}|{campaign_id}|{product_kind(target)}:{a.upper()}"
     if target_type(target) == "PRODUCT_TARGET":
         return f"{book_id}|{campaign_id}|cat:{normalize_term(target)}"
     if target_type(target, campaign_type) == "AUTO_TARGETING_GROUP":
@@ -311,7 +328,8 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
     amz_by_target = defaultdict(list)
     for a in amz_recs:
         if a["target_normalized"]:
-            amz_by_target[(a["campaign_id"], a["target_normalized"])].append(a)
+            ident_a = amz.target_identity(a.get("target")) if a.get("target") and product_asin(a["target"]) else a["target_normalized"]
+            amz_by_target[(a["campaign_id"], ident_a)].append(a)
         else:
             ds.amazon_campaign_level.append(a)
     matched_amz = set()
@@ -478,6 +496,12 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
         if not life_usable:
             step, conf, rule = p_step, P.conf, "C3_RECENT_ONLY"
             logic = "Nessun lifetime utilizzabile: bid-down guidato solo dal recente."
+        elif _mild_deterioration(L, P, (bid_of.get((e.campaign_id, ident)) or {}).get("bid"), ctx, cfg):
+            conf, rule, resolved = cap(P.conf, "MEDIUM"), "C4B_MILD_DETERIORATION_MONITOR", "WATCH"
+            flags.append("MILD_DETERIORATION_MONITOR")
+            logic = (f"Storico ancora profittevole (ACOS {L.m.acos:.1f}%, sopra l'obiettivo ma sotto il pareggio), recente peggiorato con poca evidenza "
+                     f"(spesa {P.m.spend:.2f} < {cfg['mild_recent_spend_mult']:g}x royalty) e offerta gia' bassa ({bid_txt(bid_of.get((e.campaign_id, ident)))}): "
+                     f"nessun bid-down meccanico, monitorare prima di ridurre.")
         else:
             step, rule = min(p_step, cfg["recent_deterioration_cap_step"]), "C4_RECENT_DETERIORATION"
             if (p_step >= 10 and P.conf == cfg["recent_deterioration_step10_needs_conf"] and signal == "DECLINING_SIGNAL"):

@@ -14,7 +14,7 @@ Soglie (documentate qui e mostrate nella pagina, sezione "Regole usate"):
   STA ANDANDO BENE: HOLD con >= GOOD_MIN_ORDERS acquisti storici o spesa >= GOOD_MIN_SPEND (le minori finiscono in ALTRE DECISIONI)."""
 import re
 
-from kdp_ads.opportunities import NEGATIVE, NO_ACTION, PROMOTE, REVIEW_CONFLICT, rank
+from kdp_ads.opportunities import NEGATIVE, NO_ACTION, PRODUCT_WINNER, PROMOTE, PROMOTED, REVIEW_CONFLICT, rank
 from kdp_ads.snapshots import days_inclusive
 
 LOW_IMPRESSIONS_30D = 30
@@ -143,6 +143,18 @@ def acos_summary(d: dict, book: dict) -> dict:
             "tactical": d.get("tactical_acos") if d.get("tactical_clicks") is not None else None, "tactical_days": tw}
 
 
+PAUSED_WASTE_ROYALTY_MULT = 2.0      # spreco chiaro: 0 acquisti con spesa storica >= 2 x royalty
+
+
+def provably_inefficient(d: dict, book: dict) -> bool:
+    """True solo con dati chiari: ACOS storico sopra il pareggio, oppure nessun acquisto con spesa storica >= PAUSED_WASTE_ROYALTY_MULT x royalty.
+    Con ACOS n/d, nessuna vendita o dati scarsi l'inefficienza NON e' dimostrabile."""
+    acos, be, roy = d.get("lifetime_acos"), book.get("break_even_acos"), book.get("royalty_per_copy")
+    if acos is not None and be is not None and acos > be:
+        return True
+    return bool(not (d.get("lifetime_orders") or 0) and roy and _spend(d) >= PAUSED_WASTE_ROYALTY_MULT * float(roy))
+
+
 def short_reason(d: dict, book: dict) -> str:
     """Motivo breve in italiano semplice, costruito dai numeri della decisione (mai codici tecnici)."""
     fa, tgt = d.get("final_action"), book.get("target_acos")
@@ -164,8 +176,10 @@ def short_reason(d: dict, book: dict) -> str:
     if fa == "REVIEW_DELIVERY_BEFORE_BID_CHANGE":
         return "L'erogazione è calata: verifica l'offerta e la pertinenza prima di cambiare l'offerta."
     if fa == "HOLD_PAUSED_TARGET":
-        return "Era inefficiente, ma è già fermo. Nessuna azione necessaria."
+        return "Era inefficiente ed è già in pausa." if provably_inefficient(d, book) else "È già in pausa. Nessuna azione necessaria."
     if fa == "WATCH":
+        if "MILD_DETERIORATION_MONITOR" in str(d.get("flags") or ""):
+            return "Storicamente è ancora profittevole, ma il rendimento recente è peggiorato. Il bid è già basso: monitora prima di ridurlo."
         if sig == "DECLINING_SIGNAL" or (life is not None and tgt is not None and life <= tgt and tac is not None and tac > tgt):
             return "Storicamente forte, ma il rendimento recente è peggiorato."
         if (life is not None and tgt is not None and life > tgt) or (tac is not None and tgt is not None and tac > tgt):
@@ -235,8 +249,7 @@ def delivery_item(d: dict, parse_detail=None) -> dict | None:
     elif cls == "VERY_LOW":
         reason = f"Il target è attivo ma riceve pochissime impressioni ({it_int(imp)} negli ultimi {days} giorni). Verifica offerta e pertinenza."
     else:
-        reason = (f"Le impressioni sono calate molto rispetto al riferimento (×{str(round(ref['ratio'], 2)).replace('.', ',')}). "
-                  "Verifica offerta, concorrenza e stato della campagna.")
+        reason = "Le impressioni sono calate molto rispetto al periodo precedente. Verifica offerta, concorrenza e stato della campagna."
     return {"id": d.get("decision_id") or d.get("pk"), "kind": "DELIVERY", "klass": cls, "badge": DELIVERY_CLASS[cls], "campaign": d.get("campaign_id"),
             "target": target_name(d), "title": card_title(d), "bid": d.get("current_bid"), "impressions_30d": imp, "days": days, "reference": ref,
             "clicks_30d": d.get("tactical_clicks"), "status": d.get("target_status"), "reason": reason, "decision": d}
@@ -273,10 +286,14 @@ def conflict_reason(r: dict) -> str:
             f"{kind} nella campagna {camp}.")
 
 
-CONFLICT_TEXT = ("Questo termine sta vendendo, ma risulta già impostato come negativa esatta. "
-                 "Verifica la configurazione prima di promuoverlo.")
-CONFLICT_TEXT_PHRASE = ("Questo termine sta vendendo, ma risulta già impostato come negativa a frase. "
-                        "Verifica la configurazione prima di promuoverlo.")
+def conflict_text(r: dict) -> str:
+    kind = "negativa esatta" if r.get("negative_match") == "EXACT" else "negativa a frase"
+    return (f"Il termine è {kind} nella campagna {r.get('campaign_id')}, ma non risulta presente in una campagna EXACT. "
+            "Verifica se la promozione è stata completata.")
+
+
+PROMOTED_TEXT = "Questa keyword è già stata promossa in EXACT ed esclusa dalla FRASE con negativa esatta. Configurazione coerente."
+PROMOTED_PAUSED_TEXT = "Questa keyword è stata promossa in EXACT ed esclusa dalla FRASE, ma il target EXACT è attualmente in pausa."
 CONFLICT_HINT = "Verifica la negativa prima di qualsiasi promozione in EXACT."
 
 
@@ -289,8 +306,64 @@ def conflict_items(records: list, symbol="$") -> list:
                     "parent": target_name(r.get("parent_target")), "origin": _origin(r), "clicks": r.get("clicks"), "orders": r.get("orders"),
                     "spend": r.get("spend"), "sales": r.get("sales"), "acos": r.get("acos"), "confidence": r.get("confidence"),
                     "negative_match": r.get("negative_match"), "already_in_exact": bool(r.get("already_in_exact")),
-                    "text": CONFLICT_TEXT if r.get("negative_match") == "EXACT" else CONFLICT_TEXT_PHRASE, "reason": conflict_reason(r),
+                    "text": conflict_text(r), "reason": conflict_reason(r),
                     "hint": CONFLICT_HINT, "record": r})
+    return out
+
+
+def promoted_items(records: list) -> list:
+    """KEYWORD GIA' PROMOSSE IN EXACT: negativa nella campagna di scoperta + keyword gia' in una campagna EXACT (flusso voluto). Solo informazione:
+    nessuna azione, nessun KPI. Termini unici (la voce con piu' acquisti)."""
+    out, seen = [], set()
+    for r in rank(records, PROMOTED):
+        if r["search_term"] in seen:
+            continue
+        seen.add(r["search_term"])
+        paused = bool(r.get("promoted_exact_paused"))
+        out.append({"kind": "PROMOTED", "badge": "PROMOSSA IN EXACT · ATTUALMENTE IN PAUSA" if paused else "PROMOSSA IN EXACT", "term": r["search_term"],
+                    "campaign": r["campaign_id"], "exact_campaigns": list(r.get("promoted_in") or []), "paused": paused, "clicks": r.get("clicks"),
+                    "orders": r.get("orders"), "spend": r.get("spend"), "sales": r.get("sales"), "acos": r.get("acos"),
+                    "text": PROMOTED_PAUSED_TEXT if paused else PROMOTED_TEXT, "record": r})
+    return out
+
+
+def _product_decision(decisions, r) -> dict | None:
+    """Decisione operativa del product target che ha catturato l'ASIN (stessa campagna, stessa stringa target). None se non esiste."""
+    tgt = str(r.get("parent_target") or "").strip().lower()
+    for d in decisions or []:
+        if d.get("campaign_id") == r.get("campaign_id") and not d.get("search_term") and str(d.get("target") or "").strip().lower() == tgt:
+            return d
+    return None
+
+
+def product_state(d: dict, state_of: dict | None = None) -> dict:
+    """STATO OPERATIVO del target dalla decisione del decision layer (mai una decisione propria): stessa etichetta con cui la Panoramica mostra
+    quel target (COSA FARE OGGI / IN PAUSA / MONITORA / NON TOCCARE), altrimenti la parola dell'azione."""
+    sa = simple_action(d)
+    word = (state_of or {}).get(d.get("decision_id") or d.get("pk")) or sa["word"]
+    days = window_days(d.get("tactical_window"), 30)
+    tac = d.get("tactical_acos") if d.get("tactical_clicks") is not None else None
+    if word == "GIÀ IN PAUSA":
+        text = "Il target è già in pausa. Nessuna azione necessaria."
+    else:
+        text = (f"Il target complessivo ha ACOS {it_pct(tac)} negli ultimi {days} giorni." if tac is not None
+                else f"Il target complessivo ha ACOS storico {it_pct(d.get('lifetime_acos'))}.")
+        text += " Per ora non modificare l'offerta." if word in ("MONITORA", "NON TOCCARE") else f" Decisione sul target: {sa['headline'].lower()}."
+    return {"word": word, "text": text, "target_acos": tac, "days": days}
+
+
+def product_winner_items(records: list, decisions=None, state_of=None) -> list:
+    """TARGET PRODOTTO VINCENTE: classificazione INFORMATIVA derivata dai Search Term (un ASIN non e' una keyword: mai 'METTI IN EXACT').
+    Non genera nessuna decisione: lo stato operativo, se c'e', e' quello del decision layer per quel product target; senza decisione
+    si mostrano solo i dati Search Term. Nessun KPI."""
+    out = []
+    for r in rank(records, PRODUCT_WINNER):
+        d = _product_decision(decisions, r)
+        out.append({"kind": "PRODUCT", "badge": "TARGET PRODOTTO VINCENTE", "asin": r.get("product_asin") or str(r["search_term"]).upper(),
+                    "campaign": r["campaign_id"], "status": (d or {}).get("target_status") or r.get("target_status"), "clicks": r.get("clicks"),
+                    "orders": r.get("orders"), "spend": r.get("spend"), "sales": r.get("sales"), "acos": r.get("acos"),
+                    "reason": f"Ha generato {plural(r.get('orders') or 0, 'acquisto', 'acquisti')} con ACOS {it_pct(r.get('acos'))} nei termini/prodotti recenti.",
+                    "operational": product_state(d, state_of) if d else None, "record": r})
     return out
 
 
@@ -411,9 +484,12 @@ def build_overview(decisions: list, book: dict, summary: dict, warnings: list, o
     neg_items = opportunity_items(opp["records"], NEGATIVE, symbol) if opp else None
     conflicts = conflict_items(opp["records"], symbol) if opp else None
     already_neg = already_negative_items(opp["records"]) if opp else None
+    promoted = promoted_items(opp["records"]) if opp else None
     cards = {"actions": [decision_card(d, book) for d in actionable], "paused": [paused_card(d, book) for d in paused_rel],
              "delivery": delivery, "monitor": [monitor_card(d, book) for d in monitor], "good": [good_card(d, book) for d in good]}
     others = [other_row(d) for d in paused_other + other]
+    state_of = {c["id"]: c["badge"] for k in ("actions", "paused", "monitor", "good") for c in cards[k]}          # etichetta con cui la pagina mostra il target
+    products = product_winner_items(opp["records"], decisions, state_of) if opp else None
     kpi = {"actions": len(cards["actions"]) if has_flag else None, "exact": None if exact_items is None else len(exact_items),
            "negatives": None if neg_items is None else len(neg_items), "paused": len(cards["paused"]), "warnings": len(warnings),
            "delivery": len(delivery)}
@@ -425,6 +501,6 @@ def build_overview(decisions: list, book: dict, summary: dict, warnings: list, o
         by_word[c["badge"]] = by_word.get(c["badge"], 0) + 1
     return {"has_actionable_field": has_flag, "kpi": kpi, **cards, "exact": exact_items, "exact_shown": (exact_items or [])[:MAX_ITEMS],
             "exact_new_campaign": new_campaign, "exact_suggestion": (opp or {}).get("new_exact_campaign"), "negatives": neg_items,
-            "conflicts": conflicts, "already_negative": already_neg,
+            "conflicts": conflicts, "already_negative": already_neg, "promoted": promoted, "products": products,
             "negatives_shown": (neg_items or [])[:MAX_ITEMS], "others": others, "warnings": warnings, "actions_by_word": by_word, "rules": RULES_TEXT,
             "all_ids": [c["id"] for k in ("actions", "paused", "delivery", "monitor", "good") for c in cards[k]] + [r["id"] for r in others]}

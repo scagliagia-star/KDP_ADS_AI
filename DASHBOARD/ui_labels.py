@@ -39,6 +39,8 @@ OV_EXACT = "KEYWORD DA METTERE IN EXACT"
 OV_EXACT_NEW = "CREA CAMPAGNA EXACT CON QUESTE KEYWORD"
 OV_NEGATIVE = "KEYWORD DA VALUTARE COME NEGATIVE"
 OV_CONFLICTS = "CONFLITTI DA VERIFICARE"
+OV_PROMOTED = "KEYWORD GIÀ PROMOSSE IN EXACT"
+OV_PRODUCTS = "TARGET PRODOTTO VINCENTE"
 OV_DELIVERY = "EROGAZIONE DA VERIFICARE"
 OV_PAUSED = "TARGET IN PAUSA RILEVANTI"
 OV_MONITOR = "DA MONITORARE"
@@ -123,6 +125,8 @@ OPP_LABELS = {
     "WATCH_SEARCH_TERM": "Monitora termine di ricerca",
     "NO_ACTION": "Nessuna azione",
     "REVIEW_NEGATIVE_CONFLICT": "Conflitto da verificare",
+    "PROMOTED_TO_EXACT": "Promossa in EXACT",
+    "WINNING_PRODUCT_TARGET": "Target prodotto vincente",
 }
 # ------------------------------------------------------------------ Lancio nuovo libro (bozza locale, nessuna rete)
 LAUNCH_PAGE_TITLE = "Lancio nuovo libro"
@@ -203,6 +207,8 @@ OPP_SECTION_PROMOTE = "A · DA PROMUOVERE IN EXACT"
 OPP_SECTION_NEGATIVE = "B · CANDIDATI NEGATIVI"
 OPP_SECTION_WATCH = "C · DA MONITORARE"
 OPP_SECTION_CONFLICT = "D · CONFLITTI DA VERIFICARE"
+OPP_SECTION_PROMOTED = "E · GIÀ PROMOSSE IN EXACT"
+OPP_SECTION_PRODUCT = "F · TARGET PRODOTTO VINCENTE"
 OPP_KPI_EXACT = "OPPORTUNITÀ EXACT"
 OPP_KPI_NEGATIVE = "CANDIDATI NEGATIVI"
 OPP_NEW_CAMPAIGN = "Valuta creazione campagna EXACT"
@@ -213,7 +219,8 @@ OPP_AGREEMENT_LABELS = {"CONCORDI": "Finestre concordi", "DISCORDI": "Finestre d
 OPP_FLAG_LABELS = {"ALREADY_IN_EXACT": "Già in EXACT", "EXACT_PAUSED": "Keyword EXACT in pausa", "DUPLICATE_ACROSS_CAMPAIGNS": "Presente in più campagne",
                    "MULTI_PARENT_TARGET": "Catturato da più target", "TERM_EQUALS_PARENT_TARGET": "Coincide con il target padre",
                    "NEGATIVE_EXACT": "Già negativa esatta", "NEGATIVE_PHRASE": "Già negativa a frase", "ALREADY_NEGATIVE": "Già negativa",
-                   "NEGATIVE_CONFLICT": "Conflitto con negativa"}
+                   "NEGATIVE_CONFLICT": "Conflitto con negativa", "PROMOTED_TO_EXACT": "Promossa in EXACT",
+                   "PROMOTED_EXACT_PAUSED": "Promossa in EXACT (target in pausa)", "PRODUCT_TARGET": "Target prodotto"}
 OPP_NEGATIVE_TYPE_NOTE = "Il tipo di negativa (exact o phrase) non è deciso."
 FLAG_LABELS = {
     "ZERO_ORDER_WASTE": "Spesa senza acquisti",
@@ -224,6 +231,7 @@ FLAG_LABELS = {
     "TACTICAL_RECOVERED": "Periodo recente in recupero",
     "REVIEW_DELIVERY": "Verifica erogazione",
     "RECENT_DETERIORATION": "Peggioramento recente",
+    "MILD_DETERIORATION_MONITOR": "Peggioramento lieve: da monitorare",
     "LOW_SAMPLE": "Campione ridotto",
     "LOW_SAMPLE_LOSS": "Perdita su campione ridotto",
     "LOSS_UNDER_LOW_SAMPLE": "Perdita con campione ridotto",

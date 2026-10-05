@@ -107,12 +107,13 @@ class BuilderTests(unittest.TestCase):
         self.assertFalse(ov["good"])
 
     def test_relevant_paused_target_is_shown_as_already_paused_with_underlying_note(self):
-        p = dec(1, final_action="HOLD_PAUSED_TARGET", target_status="PAUSED", lifetime_spend=108.0, lifetime_clicks=181.0, underlying_candidate_action="BID_DOWN_5_CANDIDATE")
+        p = dec(1, final_action="HOLD_PAUSED_TARGET", target_status="PAUSED", lifetime_spend=108.0, lifetime_clicks=181.0, lifetime_acos=60.0,
+                underlying_candidate_action="BID_DOWN_5_CANDIDATE")
         quiet = dec(2, final_action="HOLD_PAUSED_TARGET", target_status="PAUSED")
         ov = build([p, quiet])
         self.assertEqual([c["badge"] for c in ov["paused"]], ["GIÀ IN PAUSA"])
         self.assertIn("abbassa offerta", ov["paused"][0]["note"])
-        self.assertEqual(ov["paused"][0]["reason"], "Era inefficiente, ma è già fermo. Nessuna azione necessaria.")
+        self.assertEqual(ov["paused"][0]["reason"], "Era inefficiente ed è già in pausa.")                  # ACOS 60% > pareggio: dimostrabile
         self.assertEqual([r["id"] for r in ov["others"]], ["D-0002"])                                  # senza dati rilevanti: nell'elenco in fondo
         self.assertEqual(ov["kpi"]["paused"], 1)
 
@@ -377,7 +378,9 @@ class RealBookTests(unittest.TestCase):
             self.assertIn(f"FRASE · {t}", text, t)
         self.assertIn("Il target è attivo ma non sta ricevendo traffico. Verifica offerta e pertinenza.", text)
         self.assertIn("AUTO · Complementi", text)
-        self.assertIn("Era inefficiente, ma è già fermo. Nessuna azione necessaria.", text)
+        self.assertIn("Era inefficiente ed è già in pausa.", text)                                      # passport book: ACOS 144,6%
+        self.assertIn("È già in pausa. Nessuna azione necessaria.", text)                               # Complementi: 38,8% < pareggio, non dimostrabile
+        self.assertNotIn("Era inefficiente, ma", text)
         self.assertIn("AUTO · Corrispondenza generica", text)
         self.assertIn("Storicamente forte, ma il rendimento recente è peggiorato.", text)
         self.assertIn("AUTO · Corrispondenza stretta", text)

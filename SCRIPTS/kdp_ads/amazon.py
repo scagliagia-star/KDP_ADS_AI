@@ -3,7 +3,7 @@ Amazon e' evidenza di audit: NON guida la decisione, serve a misurare l'accordo 
 from datetime import date, datetime
 from pathlib import Path
 
-from .metrics import normalize_term, product_asin
+from .metrics import normalize_term, product_key
 from . import registry
 
 DIRECTIONS = ("REDUCE_BID", "INCREASE_BID", "PAUSE", "ADD_NEGATIVE", "REDUCE_PLACEMENT_MODIFIER", "NO_ACTION", "UNSPECIFIED")
@@ -15,11 +15,11 @@ class AmazonRecError(ValueError):
 
 
 def target_identity(target: str | None) -> str:
-    """Stessa identita' usata per gli action_key: keyword normalizzata, oppure ASIN minuscolo."""
+    """Stessa identita' usata per gli action_key: keyword normalizzata, oppure chiave prodotto 'asin:<asin>' / 'asin-expanded:<asin>'
+    (il tipo di targeting e' parte dell'identita')."""
     if not target:
         return ""
-    a = product_asin(target)
-    return a if a else normalize_term(target)
+    return product_key(target) or normalize_term(target)
 
 
 def _d(v, label):

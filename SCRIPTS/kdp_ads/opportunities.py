@@ -33,6 +33,7 @@ REGOLE EFFETTIVE (tutte in DEFAULTS, sovrascrivibili con la chiave opzionale rul
   campagna EXACT: 'Valuta creazione campagna EXACT'. N = 3 = la soglia di ordini della confidence HIGH: un gruppo minimo di tre termini
   forti giustifica una campagna dedicata; con 1-2 termini basta aggiungerli a una campagna esistente."""
 import re
+import unicodedata
 from collections import defaultdict
 
 from .metrics import AUTO_TARGET_GROUPS, compute_metrics, normalize_term, product_asin, target_type, term_matches_target
@@ -41,11 +42,14 @@ from .snapshots import days_inclusive, period_id as make_period_id, window_label
 
 PROMOTE, NEGATIVE, WATCH, NO_ACTION = "PROMOTE_TO_EXACT", "NEGATIVE_CANDIDATE", "WATCH_SEARCH_TERM", "NO_ACTION"
 REVIEW_CONFLICT = "REVIEW_NEGATIVE_CONFLICT"                     # termine che vende ma gia' negativo: solo verifica manuale
-OPPORTUNITY_TYPES = (PROMOTE, NEGATIVE, WATCH, NO_ACTION, REVIEW_CONFLICT)
+PROMOTED = "PROMOTED_TO_EXACT"                                   # negativa in FRASE + keyword gia' in EXACT: promozione completata, nessuna azione
+PRODUCT_WINNER = "WINNING_PRODUCT_TARGET"                        # ASIN / product target che vende bene: mai una keyword EXACT
+OPPORTUNITY_TYPES = (PROMOTE, NEGATIVE, WATCH, NO_ACTION, REVIEW_CONFLICT, PROMOTED, PRODUCT_WINNER)
 SUGGESTION_NEW_EXACT = "Valuta creazione campagna EXACT"
 DISCOVERY_TYPES = frozenset({"PHRASE", "BROAD", "AUTO", "OTHER"})
 _CONF = ["LOW", "MEDIUM", "HIGH"]
-_ASIN_LIKE = re.compile(r"^b0[a-z0-9]{8}$")
+_ASIN_LIKE = re.compile(r"^(b0[a-z0-9]{8}|\d{9}[\dx])$")          # ASIN Amazon e ISBN-10 (ASIN dei libri cartacei)
+_QUOTES = "\"'\u201c\u201d\u2018\u2019\u00ab\u00bb"
 
 DEFAULTS = {
     "promote_high_min_orders": 3,            # + ACOS <= target ACOS
@@ -104,6 +108,18 @@ def negative_state(raws):
     if any(f["negative_phrase"] for f in flags):
         return "PHRASE"
     return None
+
+
+def kw_norm(s):
+    """Chiave di confronto fra keyword di campagne diverse: Unicode NFKC, minuscole, virgolette esterne tolte, apostrofi tipografici dritti,
+    spazi ridotti. Nient'altro: 'coin collection supplies' e 'coin collectors supplies' restano keyword DIVERSE (niente stemming/sinonimi)."""
+    s = unicodedata.normalize("NFKC", str(s or "")).replace("\u2019", "'").replace("\u2018", "'")
+    return re.sub(r"\s+", " ", s.strip().strip(_QUOTES).strip()).lower()
+
+
+def is_asin_term(term):
+    t = normalize_term(term)
+    return bool(t) and bool(product_asin(t) or _ASIN_LIKE.match(t) or t.startswith(("asin=", "asin-expanded=")))
 
 
 def is_real_query(term):
@@ -187,7 +203,7 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
         ct = ctype.get(t["campaign_id"], "")
         if target_type(t["target"], ct) != "KEYWORD_TARGET":
             continue
-        key = normalize_term(t["target"])
+        key = kw_norm(t["target"])
         st_ = status_of(t.get("raw_json")) if status_of else "UNKNOWN"
         entry = (t["campaign_id"], st_)
         if entry not in any_kw[key]:
@@ -199,13 +215,17 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
     # raggruppa per (campagna, termine) e periodo
     excluded = defaultdict(int)
     groups = defaultdict(lambda: defaultdict(list))             # (campaign, term) -> period -> rows
+    asin_groups = defaultdict(lambda: defaultdict(list))        # ASIN come termine di ricerca: (campaign, asin) -> period -> rows
     added, ad_groups = defaultdict(set), defaultdict(set)       # "Aggiunto come" e gruppi annunci per (campagna, termine)
     for r in st_rows:
         term = normalize_term(r["search_term"])
-        if not is_real_query(r["search_term"]):
-            excluded["non_query" if term else "vuoto"] += 1
-            continue
         pid = r.get("period_id") or make_period_id(r["report_scope"], r["date_from"], r["date_to"])
+        if not is_real_query(r["search_term"]):
+            if is_asin_term(r["search_term"]):                  # ASIN/product target: valutato a parte, mai una keyword EXACT
+                asin_groups[(r["campaign_id"], term)][pid].append({**r, "period_id": pid})
+            else:
+                excluded["non_query" if term else "vuoto"] += 1
+            continue
         groups[(r["campaign_id"], term)][pid].append({**r, "period_id": pid})
         key = (r["campaign_id"], term)
         if r.get("added_as"):
@@ -229,6 +249,30 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
                       added_as=sorted(added[(cid, term)]), ad_groups=sorted(ad_groups[(cid, term)]))
         records.append(rec)
 
+    for (cid, term), per in sorted(asin_groups.items()):
+        w = wins.get(cid, {"tactical": None, "confirm": None})
+        T = _eval_window(per[w["tactical"]], ctx, cfg) if w["tactical"] in per else None
+        C = _eval_window(per[w["confirm"]], ctx, cfg) if w["confirm"] in per else None
+        if T is None and C is None:
+            excluded["non_query"] += 1
+            continue
+        parents = defaultdict(float)
+        for r in (per[w["tactical"]] if w["tactical"] in per else per[w["confirm"]]):
+            parents[r["target"]] += r["clicks"] or 0
+        parent = max(parents, key=lambda k: (parents[k], str(k)))
+        rec = _decide(cid, ctype.get(cid, ""), term, parent, sorted(parents, key=str), T, C, w, ctx, cfg, exact_kw, any_kw)
+        if rec["opportunity_type"] != PROMOTE:                  # un ASIN non e' mai un candidato negativo/EXACT: resta fuori come prima
+            excluded["non_query"] += 1
+            continue
+        rec["opportunity_type"] = PRODUCT_WINNER
+        rec["flags"] = [f for f in rec["flags"] if f not in ("ALREADY_IN_EXACT", "EXACT_PAUSED")] + ["PRODUCT_TARGET"]
+        rec["product_asin"] = term.upper()
+        sts = [status_of(x.get("raw_json")) if status_of else "UNKNOWN" for x in target_rows if normalize_term(x["target"]) == normalize_term(parent)
+               and x["campaign_id"] == cid]
+        rec["target_status"] = ("ENABLED" if "ENABLED" in sts else "PAUSED" if sts and all(s == "PAUSED" for s in sts) else "UNKNOWN")
+        rec["reason"] = "target prodotto (ASIN) con buon rendimento: non e' una keyword, nessuna promozione in EXACT."
+        records.append(rec)
+
     seen_in = defaultdict(set)
     for r in records:
         seen_in[r["search_term"]].add(r["campaign_id"])
@@ -243,10 +287,11 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
 
 def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any_kw, added_as=(), ad_groups=()):
     flags, notes = [], []
+    promoted_in = []
     negative = negative_state(added_as)                         # negativa gia' impostata, valutata solo in QUESTA campagna
     primary = T or C
-    in_exact = exact_kw.get(term, [])
-    elsewhere = [e for e in any_kw.get(term, []) if e[0] != cid]
+    in_exact = exact_kw.get(kw_norm(term), [])
+    elsewhere = [e for e in any_kw.get(kw_norm(term), []) if e[0] != cid]
     already_exact = bool(in_exact)
     if already_exact:
         flags.append("ALREADY_IN_EXACT")
@@ -341,10 +386,19 @@ def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any
     if negative:
         kind = "esatta" if negative == "EXACT" else "a frase"
         flags.append("NEGATIVE_EXACT" if negative == "EXACT" else "NEGATIVE_PHRASE")
-        if promo(T) or promo(C):                                # vende ma e' gia' negativo: mai promozione, solo verifica
+        promoted_in = sorted({e[0] for e in in_exact if e[0] != cid})        # keyword gia' in EXACT in un'ALTRA campagna (stesso libro/marketplace)
+        if (promo(T) or promo(C)) and promoted_in:               # flusso voluto: promossa in EXACT + negativa nella campagna di scoperta
+            otype = PROMOTED
+            flags.append("PROMOTED_TO_EXACT")
+            exact_states = [e[1] for e in in_exact if e[0] != cid]
+            promoted_paused = bool(exact_states) and all(s == "PAUSED" for s in exact_states)
+            if promoted_paused:
+                flags.append("PROMOTED_EXACT_PAUSED")
+            why.append("promossa in EXACT (" + ", ".join(promoted_in) + (", target in pausa" if promoted_paused else "") + f") ed esclusa con negativa {kind} in questa campagna")
+        elif promo(T) or promo(C):                              # vende, e' negativa e NON e' in EXACT: promozione forse non completata
             otype = REVIEW_CONFLICT
             flags.append("NEGATIVE_CONFLICT")
-            why.append(f"il termine vende ma risulta gia' impostato come negativa {kind} in questa campagna: verificare prima di promuovere")
+            why.append(f"il termine vende ma risulta gia' impostato come negativa {kind} in questa campagna e non e' in nessuna campagna EXACT: verificare")
         else:
             if otype == NEGATIVE:
                 why.append(f"gia' negativa {kind} in questa campagna: nessuna nuova negativa")
@@ -361,7 +415,8 @@ def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any
         "already_in_exact": already_exact, "already_targeted_elsewhere": bool(elsewhere),
         "targeted_in": sorted({e[0] for e in elsewhere}), "also_seen_in": [],
         "added_as_raw": list(added_as), "added_as_normalized": [k for k, v in _merge_added(added_as).items() if v],
-        "negative_match": negative, "ad_groups": list(ad_groups),
+        "negative_match": negative, "ad_groups": list(ad_groups), "promoted_in": promoted_in if negative else [],
+        "promoted_exact_paused": ("PROMOTED_EXACT_PAUSED" in flags),
         "operationally_actionable": False, "manual_review_required": True,
     }
 

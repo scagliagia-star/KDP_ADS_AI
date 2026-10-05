@@ -172,6 +172,42 @@ def negative_section(st, ov):
         _see_all(st)
 
 
+def promoted_section(st, ov):
+    """Informazione (nessuna azione, nessun KPI): keyword gia' promosse in EXACT ed escluse dalla campagna di scoperta."""
+    items = ov.get("promoted")
+    if not items:
+        return
+    st.divider()
+    st.header(U.OV_PROMOTED)
+    for i in items:
+        with st.container(border=True):
+            st.markdown(f"{F.badge(i['badge'], 'grey' if i['paused'] else 'green')} **{F.esc(i['term'])}**", unsafe_allow_html=True)
+            st.caption(f"Campagna di scoperta: {i['campaign']} · Campagna EXACT: {', '.join(i['exact_campaigns'])}")
+            st.markdown(f"Clic {F.num(i['clicks'])} · Acquisti {F.num(i['orders'])} · Spesa {F.money(i['spend'])} · Vendite {F.money(i['sales'])} · "
+                        f"ACOS {F.acos(i['acos'])}")
+            st.markdown(f"_{i['text']}_")
+
+
+def products_section(st, ov):
+    items = ov.get("products")
+    if not items:
+        return
+    st.divider()
+    st.header(U.OV_PRODUCTS)
+    for i in items:
+        with st.container(border=True):
+            st.markdown(f"{F.badge(i['badge'], 'green')} **ASIN {F.esc(i['asin'])}**", unsafe_allow_html=True)
+            st.caption(f"Campagna: {i['campaign']} · Stato target: {U.label_status(i['status'])}")
+            st.markdown(f"Clic {F.num(i['clicks'])} · Acquisti {F.num(i['orders'])} · Spesa {F.money(i['spend'])} · Vendite {F.money(i['sales'])} · "
+                        f"ACOS {F.acos(i['acos'])}")
+            st.markdown(f"_{i['reason']}_")
+            op = i["operational"]
+            if op:
+                st.markdown(f"**STATO OPERATIVO DEL TARGET:** {F.badge(op['word'], 'yellow' if op['word'] == 'MONITORA' else 'grey')}", unsafe_allow_html=True)
+                st.markdown(op["text"])
+            st.caption("È un target per prodotto, non una keyword: non si promuove in EXACT.")
+
+
 def conflicts_section(st, ov):
     """Mostrata solo se esistono conflitti. Nessuna azione suggerita: solo verifica manuale."""
     items = ov.get("conflicts")
@@ -196,21 +232,21 @@ def conflicts_section(st, ov):
 
 
 # ------------------------------------------------------------------ erogazione, pause, monitor, bene
-def delivery_section(st, ov):
+def delivery_section(st, ov, book=None):
     st.header(U.OV_DELIVERY)
     if not ov["delivery"]:
         st.success("Nessun target attivo con problemi di erogazione.")
         return
-    st.caption("Target attivi senza traffico, con pochissimo traffico o con un forte calo rispetto al riferimento. "
+    st.caption("Target attivi senza traffico, con pochissimo traffico o con un forte calo delle impressioni. "
                "Non conviene alzare l'offerta solo perché un target non eroga: prima verifica offerta e pertinenza.")
     for i in ov["delivery"]:
         with st.container(border=True):
-            ref = i["reference"]
             st.markdown(f"{F.badge(i['badge'], 'orange')} **{F.esc(i['title'])}**", unsafe_allow_html=True)
-            refs = (f"{F.num(ref['per_day'], 1)} al giorno ({ref['scope']}, ultimi {ref['days']} giorni)" if ref["per_day"] is not None else F.ND)
             st.markdown(f"Offerta {F.money(i['bid'])} · Impressioni ultimi {i['days']} giorni: **{F.num(i['impressions_30d'])}** · "
-                        f"Impressioni di riferimento: {refs} · Clic: {F.num(i['clicks_30d'])} · Stato target: {U.label_status(i['status'])}")
+                        f"Clic: {F.num(i['clicks_30d'])} · Stato target: {U.label_status(i['status'])}")
             st.markdown(f"_{i['reason']}_")
+            if book is not None:
+                why(st, i["decision"], book)                  # il riferimento di campagna sta solo qui (PERCHÉ? / DETTAGLIO TECNICO)
 
 
 def paused_section(st, ov):

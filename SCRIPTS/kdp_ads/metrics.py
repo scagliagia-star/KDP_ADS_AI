@@ -39,6 +39,19 @@ def product_asin(target: str | None) -> str | None:
     return m.group(2).lower() if m else None
 
 
+def product_kind(target: str | None) -> str | None:
+    """Tipo di targeting per prodotto: 'asin' oppure 'asin-expanded' (None se non e' un target ASIN). Fa parte dell'IDENTITA' del target."""
+    m = _ASIN_TARGET.match(target or "")
+    return m.group(1).lower() if m else None
+
+
+def product_key(target: str | None) -> str | None:
+    """Chiave di identita' di un product target: 'asin:<asin>' o 'asin-expanded:<asin>'. Lo stesso ASIN con tipo diverso sono target DIVERSI
+    (stato, offerta, metriche e decisione separati). La stringa originale Amazon non viene mai modificata."""
+    k = product_kind(target)
+    return f"{k}:{product_asin(target)}" if k else None
+
+
 # Gruppi di targeting AUTOMATICO Amazon (colonna 'Gruppi di annunci con targeting automatico'): NON sono keyword digitate dall'utente.
 AUTO_CAMPAIGN_TYPES = frozenset({"AUTO", "OTHER"})
 AUTO_TARGET_GROUPS = frozenset({"loose-match", "close-match", "complements", "substitutes"})

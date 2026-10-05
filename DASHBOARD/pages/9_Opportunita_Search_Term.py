@@ -10,7 +10,7 @@ import formatting as F  # noqa: E402
 import ui_labels as U  # noqa: E402
 from components import cards, sidebar  # noqa: E402
 from data_access.repository import RepoError  # noqa: E402
-from kdp_ads.opportunities import NEGATIVE, NO_ACTION, PROMOTE, REVIEW_CONFLICT, WATCH, rank, unique_terms  # noqa: E402
+from kdp_ads.opportunities import NEGATIVE, NO_ACTION, PRODUCT_WINNER, PROMOTE, PROMOTED, REVIEW_CONFLICT, WATCH, rank, unique_terms  # noqa: E402
 
 ctx = cards.page_setup(st, U.OPP_PAGE_TITLE, lambda: sidebar.select_context(st))
 st.caption(U.OPP_INTRO)
@@ -80,14 +80,18 @@ def table(rows):
 
 
 for title, otype in ((U.OPP_SECTION_PROMOTE, PROMOTE), (U.OPP_SECTION_NEGATIVE, NEGATIVE), (U.OPP_SECTION_WATCH, WATCH),
-                     (U.OPP_SECTION_CONFLICT, REVIEW_CONFLICT)):
-    if otype == REVIEW_CONFLICT and not rank(records, otype):
+                     (U.OPP_SECTION_CONFLICT, REVIEW_CONFLICT), (U.OPP_SECTION_PROMOTED, PROMOTED), (U.OPP_SECTION_PRODUCT, PRODUCT_WINNER)):
+    if otype in (REVIEW_CONFLICT, PROMOTED, PRODUCT_WINNER) and not rank(records, otype):
         continue
     rows = rank(records, otype)
     st.subheader(f"{title} ({len(rows)})")
-    st.markdown(F.badge(U.label_opportunity(otype), {PROMOTE: "green", NEGATIVE: "red", WATCH: "orange", REVIEW_CONFLICT: "orange"}[otype]), unsafe_allow_html=True)
+    st.markdown(F.badge(U.label_opportunity(otype), {PROMOTE: "green", NEGATIVE: "red", WATCH: "orange", REVIEW_CONFLICT: "orange", PROMOTED: "grey", PRODUCT_WINNER: "green"}[otype]), unsafe_allow_html=True)
     if otype == NEGATIVE:
         st.caption(U.OPP_NEGATIVE_TYPE_NOTE)
+    if otype == PROMOTED:
+        st.caption("Keyword negativa nella campagna di scoperta e già presente in una campagna EXACT: configurazione coerente, nessuna azione.")
+    if otype == PRODUCT_WINNER:
+        st.caption("Target per prodotto (ASIN) con buon rendimento: non è una keyword, non si promuove in EXACT.")
     if otype == REVIEW_CONFLICT:
         st.caption("Questi termini vendono ma risultano già negativi nella campagna indicata. Verifica la negativa prima di qualsiasi promozione in EXACT.")
     if not rows:

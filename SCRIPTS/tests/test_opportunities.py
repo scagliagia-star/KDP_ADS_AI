@@ -15,8 +15,8 @@ sys.path.insert(0, str(ROOT / "SCRIPTS"))
 sys.path.insert(0, str(HERE))
 
 import test_rules as tr
-from kdp_ads.opportunities import (NEGATIVE, NO_ACTION, PROMOTE, REVIEW_CONFLICT, SUGGESTION_NEW_EXACT, WATCH, compute_opportunities,
-                                   is_real_query, load_inputs, make_ctx, negative_state, normalize_added_as, rank, unique_terms)
+from kdp_ads.opportunities import (NEGATIVE, NO_ACTION, PRODUCT_WINNER, PROMOTE, PROMOTED, REVIEW_CONFLICT, SUGGESTION_NEW_EXACT, WATCH, compute_opportunities,
+                                   is_asin_term, is_real_query, kw_norm, load_inputs, make_ctx, negative_state, normalize_added_as, rank, unique_terms)
 from kdp_ads.rules import load_rules
 
 BOOK = {"book_id": "B1", "title": "T", "marketplace": "US", "currency": "USD", "price": 16.99, "royalty_per_copy": 7.34,
@@ -261,9 +261,12 @@ class AutoGroupsTests(unittest.TestCase):
         for rec in res["records"]:
             self.assertNotIn(rec["search_term"], ("loose-match", "close-match", "complements", "substitutes"))
 
-    def test_asin_search_terms_excluded(self):
+    def test_asin_search_terms_are_never_keywords_to_promote(self):
         res = run(both("AUTO", "OTHER", "loose-match", "b0ftfjl6rb", 20, 3, 15.0))
-        self.assertEqual(res["records"], [])
+        self.assertEqual([r["opportunity_type"] for r in res["records"]], [PRODUCT_WINNER])        # mai PROMOTE_TO_EXACT
+        self.assertEqual(unique_terms(res["records"], PROMOTE), [])
+        weak = run(both("AUTO", "OTHER", "loose-match", "b0ftfjl6rb", 20, 0, 15.0))
+        self.assertEqual(weak["records"], [])                                                       # un ASIN debole non e' una negativa/keyword
 
 
 class DuplicatesAndWindowsTests(unittest.TestCase):
