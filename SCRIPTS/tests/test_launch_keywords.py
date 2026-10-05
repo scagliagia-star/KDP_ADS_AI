@@ -339,7 +339,7 @@ class CoreTopicTests(unittest.TestCase):
         kp = K.build_keyword_plan(p)
         self.assertEqual(json.dumps(p, sort_keys=True), before)
         self.assertIn("secondary_anchors", kp["profile"])
-        self.assertEqual(kp["ruleset"], "launch_keywords_v3")
+        self.assertEqual(kp["ruleset"], "launch_keywords_v4")
 
     def test_book_without_separator_title_still_has_core_topic(self):
         p = plan_of(title="Crochet Flowers Made Easy for Beginners", subtitle="", kdp_keywords=["crochet flowers", "crochet"])

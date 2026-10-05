@@ -54,7 +54,7 @@ from datetime import datetime
 from . import launch as L
 
 PLAN_VERSION = 1
-RULESET = "launch_keywords_v3"
+RULESET = "launch_keywords_v4"
 
 RULES = {
     "weights": {"relevance": 0.60, "source_diversity": 0.20, "form": 0.12, "competitor": 0.08},
@@ -943,7 +943,7 @@ def build_keyword_plan(plan: dict, competitor_data: dict | None = None, now: str
                        "note": ("ASIN forniti dall'utente e VALIDATI solo formalmente (l'esistenza su Amazon non e' verificata). Suggerimento non operativo."
                                 if valid else "Nessun ASIN competitor VALIDATO: campagna COMPETITOR non proposta.")},
     }
-    return {"version": PLAN_VERSION, "ruleset": RULESET, "generated_at": now or datetime.now().isoformat(timespec="seconds"),
+    result = {"version": PLAN_VERSION, "ruleset": RULESET, "generated_at": now or datetime.now().isoformat(timespec="seconds"),
             "input_fingerprint": input_fingerprint(plan), "profile": book_profile(plan, prof),
             "competitor_data_available": bool(cd),
             "research": {"source": "PUBLISHER_ROCKET", "files": sorted({r.get("source_file") for rs in research.values() for r in rs}),
@@ -951,6 +951,9 @@ def build_keyword_plan(plan: dict, competitor_data: dict | None = None, now: str
             "exact": exact, "phrase": phrase, "discovery": discovery, "rejected": rejected, "title_queries": title_queries,
             "dropped_candidates": dropped, "campaigns": campaigns, "rules": {k: (list(v) if isinstance(v, tuple) else v) for k, v in RULES.items()},
             "data_notes": _data_notes(plan, research, cd), "limits": _limits(plan, research, cd)}
+    from . import launch_strategy                                   # strategia di lancio PHRASE_FIRST_AUTO (preset), derivata dal piano
+    result["launch_strategy"] = launch_strategy.build_strategy(result, plan, now=result["generated_at"])
+    return result
 
 
 _ALL_METRICS = ("search_volume", "competition", "title_count", "avg_price", "avg_reviews", "avg_pages", "avg_monthly_earnings", "avg_sales", "price",

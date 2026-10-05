@@ -257,6 +257,42 @@ if plan:
                   "Tema commerciale di ricerca (COMMERCIAL_SEARCH_TOPIC)": ", ".join(pr.get("commercial_search_topic") or pr["main_terms"]) or F.ND,
                   "Titolo creativo": "sì: le keyword si valutano sul tema commerciale, non sulle parole del titolo" if pr.get("title_creative") else "no",
                   "Competitor": f"{pr['competitors_valid']} validati, {pr['competitors_unverified']} non verificati, {pr['competitors_with_data']} con dati"})
+        # ---------------------------------------------------------- strategia di lancio (preset PHRASE_FIRST_AUTO)
+        st.header(U.LAUNCH_STRATEGY_SECTION)
+        ls = kp.get("launch_strategy")
+        if not ls:
+            st.info("Questo piano è stato generato prima della strategia di lancio: premi GENERA PIANO KEYWORD per aggiornarlo.")
+        else:
+            st.caption(U.LAUNCH_STRATEGY_INTRO)
+            st.table({"Preset": ls["preset"], "Campagna iniziale consigliata": " + ".join(ls["campaigns_at_launch"]),
+                      "Campagna EXACT": "NON necessaria al lancio: " + ls["exact"]["status"]})
+            cur_sym = (kp["profile"].get("currency") or "")
+            st.subheader(f"{U.LAUNCH_STRATEGY_PHRASE} ({ls['phrase']['count']})")
+            st.caption(ls["phrase"]["note"])
+            if ls["phrase_launch"]:
+                st.dataframe([{"Keyword": x["keyword"], "Classificazione analitica": x["analytical_classification"],
+                               "Match di lancio consigliato": x["recommended_launch_match"], "Pertinenza": x["relevance_score"],
+                               "Mercato": x["market_evidence_score"], "Punteggio finale": x["final_launch_score"],
+                               "Volume": F.ND if x["volume"] is None else str(x["volume"]),
+                               "Competizione": x["competition"], "Competitor a supporto": ", ".join(x["competitor_support"]) or F.ND,
+                               "Bid suggerito": f"{x['suggested_bid']:.2f} {cur_sym}".strip(), "Fascia": U.LAUNCH_STRATEGY_TIERS.get(x["tier"], x["tier"]),
+                               "Motivo": x["reason"]} for x in ls["phrase_launch"]], use_container_width=True, hide_index=True)
+                st.text_area(U.LAUNCH_STRATEGY_COPY, value=ls["phrase"]["copy_text"], height=min(520, 40 + 24 * ls["phrase"]["count"]),
+                             key=f"kb_copy_phrase_{suffix}")
+            else:
+                st.info("Nessuna keyword supera le soglie di lancio: non riempio la lista.")
+            st.subheader(U.LAUNCH_STRATEGY_AUTO)
+            a = ls["auto"]
+            st.table({"Consigliata": "Sì" if a["recommended"] else "No", "Keyword richieste": "nessuna",
+                      "Bid iniziale suggerito (più prudente)": f"{a['suggested_bid']:.2f} {cur_sym}".strip(), "Motivo": a["reason"]})
+            st.subheader(U.LAUNCH_STRATEGY_EXACT)
+            st.info(f"{U.LAUNCH_STRATEGY_EXACT_TEXT}. {ls['exact']['how']}")
+            st.caption("Pagina collegata: Opportunità Search Term (azione «Valuta promozione in EXACT»).")
+            with st.expander(f"Varianti note e keyword escluse dal lancio ({len(ls['excluded'])})"):
+                st.dataframe([{"Keyword": x["keyword"], "Tipo": x["kind"], "Analisi": x.get("analytical_classification"), "Motivo": x["reason"]}
+                              for x in ls["excluded"][:300]], use_container_width=True, hide_index=True)
+            for n in ls["notes"]:
+                st.caption("Nota: " + n)
         st.caption(U.LAUNCH_SCORES_NOTE)
         show_all = st.checkbox(U.LAUNCH_SHOW_ALL, key=f"kb_show_all_{suffix}")
         for title, key, empty in ((U.LAUNCH_EXACT_SECTION, "exact", "Nessuna keyword abbastanza pertinente per EXACT: non riempio la lista."),
