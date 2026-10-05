@@ -617,14 +617,15 @@ class MigrationBackupTests(unittest.TestCase):
 class PilotBookTests(unittest.TestCase):
     def test_pilot_book_is_the_us_marketplace(self):
         b = registry.load_books(ROOT / "CONFIG" / "books.json")["1805566563"]
-        self.assertEqual(list(registry.marketplaces_of(b)), ["US"])
-        v = registry.book_view(b)
+        self.assertEqual(list(registry.marketplaces_of(b))[0], "US")                           # il pilota resta US; puo' avere altri marketplace (es. UK)
+        v = registry.book_view(b, "US")
         self.assertEqual((v["currency"], v["price"], v["royalty_per_copy"], v["target_acos"], v["phase"]), ("USD", 19.99, 8.55, 35.0, "PROFIT_STABLE"))
         self.assertEqual(registry.book_economics(v)[0]["break_even_acos"], 42.77)
         self.assertFalse(registry.nested_layout(b, "US"))
         locs = registry.iter_campaigns(ROOT / "INPUT", "1805566563", b)                        # struttura piatta esistente leggibile
-        self.assertEqual(sorted(l.campaign_id for l in locs), ["CHAIR_TAI_CHI_COMPETITOR", "CHAIR_TAI_CHI_EXACT", "CHAIR_TAI_CHI_PHRASE"])
-        self.assertTrue(all(l.marketplace is None and (l.path / "metadata.json").is_file() for l in locs))
+        legacy = [l for l in locs if l.marketplace is None]                                    # cartelle piatte storiche (altri marketplace possono avere cartelle annidate)
+        self.assertEqual(sorted(l.campaign_id for l in legacy), ["CHAIR_TAI_CHI_COMPETITOR", "CHAIR_TAI_CHI_EXACT", "CHAIR_TAI_CHI_PHRASE"])
+        self.assertTrue(all((l.path / "metadata.json").is_file() for l in locs))
 
     @unittest.skipUnless(REAL_DB.is_file(), "DB reale assente")
     def test_real_data_survives_migration_and_run_6_is_readable(self):
@@ -670,13 +671,13 @@ class PilotBookTests(unittest.TestCase):
             after = snapshot(copy)
             self.assertEqual(after, before)                                                    # nessuna riga persa o modificata
             repo = Repo(copy, root=ROOT)
-            self.assertEqual([m["marketplace"] for m in repo.marketplaces("1805566563")], ["US"])
+            self.assertEqual([m["marketplace"] for m in repo.marketplaces("1805566563")][0], "US")          # US sempre presente e per primo
             ctx = load_context(repo, "1805566563", 6, "US")
             self.assertEqual((ctx.error, ctx.run["run_id"], ctx.marketplace), (None, 6, "US"))
             self.assertEqual((ctx.summary["total"], ctx.summary["actionable"], ctx.summary["paused"], ctx.summary["warnings"]), (136, 2, 113, 3))
             self.assertEqual((ctx.book["target_acos"], ctx.book["royalty_per_copy"], ctx.book["currency"]), (35.0, 8.55, "USD"))
             self.assertIn(6, [r["run_id"] for r in repo.decision_runs("1805566563", "US")])
-            self.assertEqual(repo.decision_runs("1805566563", "UK"), [])
+            self.assertNotIn(6, [r["run_id"] for r in repo.decision_runs("1805566563", "UK")])      # il run 6 e' US, mai UK
 
 
 if __name__ == "__main__":

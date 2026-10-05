@@ -1,11 +1,15 @@
-"""KDP Ads AI - Dashboard di Supporto alle Decisioni: pagina PANORAMICA (home). SOLA LETTURA.
-Caricata da app.py tramite st.navigation (voce di menu "Panoramica")."""
+"""KDP Ads AI - Dashboard di Supporto alle Decisioni: PANORAMICA OPERATIVA ("cosa devo fare oggi su Amazon Ads?"). SOLA LETTURA.
+Caricata da app.py tramite st.navigation (voce di menu "Panoramica"). Le sezioni e i KPI derivano dalle stesse collezioni
+(data_access.overview.build_overview); le altre pagine restano disponibili per il dettaglio."""
 import bootstrap  # noqa: F401  (percorsi)
 import streamlit as st
 
 import formatting as F
 import ui_labels as U
-from components import cards, sidebar
+from components import cards, overview_ui, sidebar
+from data_access import overview as O
+from data_access.repository import RepoError, parse_delivery_detail
+from kdp_ads.metrics import sym
 
 
 def main():
@@ -15,7 +19,7 @@ def main():
 
     st.markdown(f"#### {b.get('title') or '(senza titolo)'} · `{b['book_id']}`")
     st.markdown(f"**Marketplace: {ctx.marketplace or F.ND} · {b.get('currency') or F.ND}**")
-    st.caption("Tutti i valori di questa pagina si riferiscono solo a questo marketplace.")
+    st.caption(U.OV_INTRO + " Tutti i valori si riferiscono solo a questo marketplace.")
     c = st.columns(4)
     c[0].metric("ACOS obiettivo", F.pct(b.get("target_acos")))
     c[1].metric("ACOS di pareggio", F.pct(b.get("break_even_acos")))
@@ -30,25 +34,37 @@ def main():
     if run["run_id"] != latest_run["run_id"]:
         st.warning(f"Stai guardando un run storico (#{run['run_id']}); l'ultimo è #{latest_run['run_id']}.")
 
-    st.divider()
-    cards.kpi_row(st, ctx.summary)
-    cards.opportunity_kpis(st, ctx.repo, ctx.book, ctx.marketplace)
+    try:                                                   # opportunità Search Term: calcolate al volo, SOLA LETTURA
+        opp = ctx.repo.search_term_opportunities(ctx.book, ctx.marketplace)
+    except RepoError:
+        opp = None
+    ov = O.build_overview(ctx.decisions, b, ctx.summary, ctx.warnings, opp, parse_delivery_detail, sym())
 
     st.divider()
-    st.header(f"1 · {U.ACTION_CENTER_TITLE}")
-    st.caption(U.ACTION_CENTER_DESCRIPTION)
-    actionable = [d for d in ctx.decisions if d.get("operationally_actionable")]
-    if ctx.summary["actionable"] is None:
-        st.info("Questo run è precedente al campo operationally_actionable (azionabile ora): il Centro azioni non è disponibile per questo run.")
-    elif not actionable:
-        st.success("Nessuna decisione da valutare ora in questo run.")
-    for d in actionable:
-        cards.decision_card(st, d)
+    st.header(U.OV_KPI_TITLE)
+    overview_ui.kpis(st, ov)
 
     st.divider()
-    st.header(f"2 · {U.WARNINGS_TITLE}")
-    cards.warnings_section(st, ctx.warnings)
-    st.caption("Altre sezioni: Tutte le decisioni · Target in pausa · Campagne · Erogazione · Confronto tra campagne (menu a sinistra).")
+    overview_ui.today(st, ov, b)
+    st.divider()
+    overview_ui.exact_section(st, ov)
+    st.divider()
+    overview_ui.negative_section(st, ov)
+    overview_ui.conflicts_section(st, ov)
+    st.divider()
+    overview_ui.delivery_section(st, ov)
+    st.divider()
+    overview_ui.paused_section(st, ov)
+    st.divider()
+    overview_ui.monitor_section(st, ov)
+    st.divider()
+    overview_ui.good_section(st, ov)
+    st.divider()
+    overview_ui.warnings_section(st, ov)
+    st.divider()
+    overview_ui.others_section(st, ov)
+    overview_ui.rules_section(st, ov)
+    st.caption("Per approfondire: Tutte le decisioni · Target in pausa · Campagne · Erogazione · Confronto tra campagne · Opportunità Search Term (menu a sinistra).")
 
 
 main()

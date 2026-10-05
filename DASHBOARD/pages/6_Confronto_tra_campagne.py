@@ -34,7 +34,7 @@ for g in groups:
         rows = []
         for m in g["members"]:
             acos = F.pct(m["acos_value"]) if m["acos_value"] is not None else ("n/d (nessuna vendita)" if m["acos"] == "N/A_NO_SALES" else (m["acos"] or F.ND))
-            rows.append({U.label_column("campaign"): m["campaign_id"], "Clic": F.num(m["clicks"]), "Ordini": F.num(m["orders"]),
+            rows.append({U.label_column("campaign"): m["campaign_id"], "Clic": F.num(m["clicks"]), "Acquisti": F.num(m["orders"]),
                          "Tasso di conversione": F.pct(m["conversion_rate"]), "CPC": F.money(m["cpc"]), "ACOS": acos,
                          "Spesa": F.money(m["spend"]), "Profitto stimato": F.money(m["estimated_direct_ad_profit"])})
         st.dataframe(rows, use_container_width=True, hide_index=True)

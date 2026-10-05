@@ -15,8 +15,8 @@ sys.path.insert(0, str(ROOT / "SCRIPTS"))
 sys.path.insert(0, str(HERE))
 
 import test_rules as tr
-from kdp_ads.opportunities import (NEGATIVE, NO_ACTION, PROMOTE, SUGGESTION_NEW_EXACT, WATCH, compute_opportunities, is_real_query,
-                                   load_inputs, make_ctx, rank, unique_terms)
+from kdp_ads.opportunities import (NEGATIVE, NO_ACTION, PROMOTE, REVIEW_CONFLICT, SUGGESTION_NEW_EXACT, WATCH, compute_opportunities,
+                                   is_real_query, load_inputs, make_ctx, negative_state, normalize_added_as, rank, unique_terms)
 from kdp_ads.rules import load_rules
 
 BOOK = {"book_id": "B1", "title": "T", "marketplace": "US", "currency": "USD", "price": 16.99, "royalty_per_copy": 7.34,
@@ -98,6 +98,112 @@ class PromoteTests(unittest.TestCase):
     def test_orders_with_acos_above_break_even_are_not_promoted(self):
         r = only(run(both("AUTO", "OTHER", "loose-match", "pricey term", 20, 3, 30.0)), "pricey term")           # ACOS 58.9%
         self.assertNotEqual(r["opportunity_type"], PROMOTE)
+
+
+NEG_EXACT, NEG_PHRASE = "Parola chiave neg.: esatta neg.", "Parola chiave neg.: frase neg."
+
+
+def with_added(rows, value):
+    return [{**r, "added_as": value} for r in rows]
+
+
+class AddedAsTests(unittest.TestCase):
+    """Aggiunto come (report Search Term): una negativa gia' impostata non e' mai ne' una nuova negativa ne' una promozione in EXACT."""
+
+    def test_normalization_of_the_amazon_values_keeps_the_raw_value(self):
+        n = normalize_added_as
+        self.assertEqual({k for k, v in n("Parola chiave: a frase").items() if v}, {"keyword_phrase"})
+        self.assertEqual({k for k, v in n("Parola chiave: esatta").items() if v}, {"keyword_exact"})
+        self.assertEqual({k for k, v in n(NEG_EXACT).items() if v}, {"negative_exact"})
+        self.assertEqual({k for k, v in n(NEG_PHRASE).items() if v}, {"negative_phrase"})
+        self.assertEqual({k for k, v in n("a frase, esatta neg.").items() if v}, {"keyword_phrase", "negative_exact"})
+        self.assertFalse(any(n(None).values()) or any(n("").values()))
+        self.assertEqual((negative_state([NEG_EXACT]), negative_state([NEG_PHRASE]), negative_state(["Parola chiave: a frase", None])),
+                         ("EXACT", "PHRASE", None))
+        rows = with_added(both("FRASE", "PHRASE", "p", "t", 20, 3, 15.0), NEG_EXACT)
+        r = only(run(rows), "t")
+        self.assertEqual((r["added_as_raw"], r["added_as_normalized"], r["negative_match"]), ([NEG_EXACT], ["negative_exact"], "EXACT"))
+        self.assertTrue(all(x["added_as"] == NEG_EXACT for x in rows))                              # righe di input intatte
+
+    def test_already_negative_exact_is_not_a_negative_candidate(self):
+        r = only(run(with_added(both("FRASE", "PHRASE", "p", "waste term", 20, 0, 20.0), NEG_EXACT)), "waste term")
+        self.assertNotEqual(r["opportunity_type"], NEGATIVE)
+        self.assertEqual(r["opportunity_type"], NO_ACTION)
+        self.assertIn("ALREADY_NEGATIVE", r["flags"])
+        self.assertEqual(only(run(both("FRASE", "PHRASE", "p", "waste term", 20, 0, 20.0)), "waste term")["opportunity_type"], NEGATIVE)
+
+    def test_already_negative_exact_is_not_promoted_but_a_conflict(self):
+        r = only(run(with_added(both("FRASE", "PHRASE", "p", "us parks", 20, 3, 15.0), NEG_EXACT)), "us parks")
+        self.assertEqual(r["opportunity_type"], REVIEW_CONFLICT)
+        self.assertNotEqual(r["opportunity_type"], PROMOTE)
+        self.assertFalse(r["operationally_actionable"])
+        self.assertTrue(r["manual_review_required"])
+        self.assertIn("NEGATIVE_CONFLICT", r["flags"])
+
+    def test_already_negative_phrase_blocks_both_promotion_and_new_negative(self):
+        conflict = only(run(with_added(both("FRASE", "PHRASE", "p", "sells", 20, 3, 15.0), NEG_PHRASE)), "sells")
+        self.assertEqual((conflict["opportunity_type"], conflict["negative_match"]), (REVIEW_CONFLICT, "PHRASE"))
+        waste = only(run(with_added(both("FRASE", "PHRASE", "p", "waste", 20, 0, 20.0), NEG_PHRASE)), "waste")
+        self.assertEqual(waste["opportunity_type"], NO_ACTION)
+
+    def test_positive_term_without_negative_can_still_be_promoted(self):
+        r = only(run(with_added(both("FRASE", "PHRASE", "p", "good", 20, 3, 15.0), "Parola chiave: a frase")), "good")
+        self.assertEqual(r["opportunity_type"], PROMOTE)
+
+    def test_combined_value_with_negative_exact_is_negative(self):
+        r = only(run(with_added(both("FRASE", "PHRASE", "p", "combo", 20, 3, 15.0), "a frase, esatta neg.")), "combo")
+        self.assertEqual(r["opportunity_type"], REVIEW_CONFLICT)
+
+    def test_scope_is_the_campaign_not_the_whole_book(self):
+        rows = with_added(both("FRASE", "PHRASE", "p", "shared", 20, 3, 15.0), NEG_EXACT) + both("AUTO", "OTHER", "loose-match", "shared", 20, 3, 15.0)
+        res = run(rows)
+        self.assertEqual(only(res, "shared", "FRASE")["opportunity_type"], REVIEW_CONFLICT)
+        self.assertEqual(only(res, "shared", "AUTO")["opportunity_type"], PROMOTE)                    # la negativa di FRASE non vale in AUTO
+        self.assertIsNone(only(res, "shared", "AUTO")["negative_match"])
+
+    def test_ad_group_is_kept_and_conflict_is_excluded_from_new_campaign_suggestion(self):
+        rows = []
+        for term in ("t1", "t2", "t3"):
+            rows += both("FRASE", "PHRASE", "p", term, 20, 3, 15.0)
+        rows = [{**r, "ad_group": "G1"} for r in rows]
+        self.assertIsNotNone(run(rows, camps=CAMPS[:2])["new_exact_campaign"])                          # 3 promozioni: suggerimento
+        blocked = [{**r, "added_as": NEG_EXACT} if r["search_term"] == "t3" else r for r in rows]
+        res = run(blocked, camps=CAMPS[:2])
+        self.assertIsNone(res["new_exact_campaign"])                                                    # il conflitto non conta
+        self.assertEqual(only(res, "t3")["ad_groups"], ["G1"])
+
+    def test_unique_terms_exclude_conflicts_from_exact_and_negative_lists(self):
+        res = run(with_added(both("FRASE", "PHRASE", "p", "c1", 20, 3, 15.0), NEG_EXACT) + both("FRASE", "PHRASE", "p", "ok", 20, 3, 15.0))
+        self.assertEqual(unique_terms(res["records"], PROMOTE), ["ok"])
+        self.assertEqual(unique_terms(res["records"], NEGATIVE), [])
+        self.assertEqual(unique_terms(res["records"], REVIEW_CONFLICT), ["c1"])
+
+    def test_load_inputs_reads_added_as_and_ad_group_when_present_and_never_writes(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "a.db"
+            c = sqlite3.connect(db)
+            c.executescript("""CREATE TABLE search_term_rows (book_id TEXT, marketplace TEXT, campaign_id TEXT, campaign_type TEXT, target TEXT, match_type TEXT,
+                ad_group TEXT, added_as TEXT, search_term TEXT, report_scope TEXT, date_from TEXT, date_to TEXT, period_id TEXT, impressions REAL, clicks REAL,
+                spend REAL, orders REAL, sales REAL);
+                CREATE TABLE target_rows (book_id TEXT, marketplace TEXT, campaign_id TEXT, campaign_type TEXT, target TEXT, match_type TEXT, report_scope TEXT,
+                date_from TEXT, date_to TEXT, period_id TEXT, raw_json TEXT);
+                CREATE TABLE campaigns (book_id TEXT, marketplace TEXT, campaign_id TEXT, campaign_type TEXT);""")
+            c.execute("INSERT INTO search_term_rows VALUES ('B1','US','FRASE','PHRASE','p',NULL,'G1',?, 'x','DATE_RANGE','2026-09-02','2026-10-01','a__b',1,1,1,1,1)", (NEG_EXACT,))
+            c.commit()
+            c.close()
+            before = hashlib.sha256(db.read_bytes()).hexdigest()
+            conn = sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro", uri=True)
+            row = load_inputs(conn, "B1", "US")["st_rows"][0]
+            conn.close()
+            self.assertEqual((row["added_as"], row["ad_group"]), (NEG_EXACT, "G1"))
+            self.assertEqual(hashlib.sha256(db.read_bytes()).hexdigest(), before)
+
+    def test_books_json_untouched(self):
+        books = ROOT / "CONFIG" / "books.json"
+        before = hashlib.sha256(books.read_bytes()).hexdigest() if books.exists() else None
+        run(with_added(both("FRASE", "PHRASE", "p", "z", 20, 3, 15.0), NEG_EXACT))
+        self.assertEqual(hashlib.sha256(books.read_bytes()).hexdigest() if books.exists() else None, before)
 
 
 class NegativeAndWatchTests(unittest.TestCase):
@@ -269,7 +375,7 @@ class MarketplaceAndSafetyTests(unittest.TestCase):
         for r in res["records"]:
             self.assertFalse(r["operationally_actionable"])
             self.assertTrue(r["manual_review_required"])
-            self.assertIn(r["opportunity_type"], (PROMOTE, NEGATIVE, WATCH, NO_ACTION))
+            self.assertIn(r["opportunity_type"], (PROMOTE, NEGATIVE, WATCH, NO_ACTION, REVIEW_CONFLICT))
         for field in ("book_id", "marketplace", "campaign_id", "campaign_type", "parent_target", "parent_target_type", "search_term", "period_id",
                       "clicks", "spend", "orders", "sales", "acos", "cvr", "cpc", "estimated_profit", "opportunity_type", "confidence", "reason",
                       "already_in_exact", "already_targeted_elsewhere"):
@@ -287,11 +393,12 @@ class MarketplaceAndSafetyTests(unittest.TestCase):
 class DashboardOpportunityTests(unittest.TestCase):
     def test_labels_are_italian(self):
         import ui_labels as U
-        self.assertEqual(U.label_opportunity("PROMOTE_TO_EXACT"), "Valuta aggiunta in EXACT")
-        self.assertEqual(U.label_opportunity("NEGATIVE_CANDIDATE"), "Valuta keyword negativa")
-        self.assertEqual(U.label_opportunity("WATCH_SEARCH_TERM"), "Monitora search term")
+        self.assertEqual(U.label_opportunity("PROMOTE_TO_EXACT"), "Valuta promozione in EXACT")
+        self.assertEqual(U.label_opportunity("NEGATIVE_CANDIDATE"), "Valuta come negativa")
+        self.assertEqual(U.label_opportunity("WATCH_SEARCH_TERM"), "Monitora termine di ricerca")
         self.assertEqual(U.OPP_NEW_CAMPAIGN, "Valuta creazione campagna EXACT")
         self.assertEqual((U.OPP_KPI_EXACT, U.OPP_KPI_NEGATIVE), ("OPPORTUNITÀ EXACT", "CANDIDATI NEGATIVI"))
+        self.assertEqual(U.label_opportunity("REVIEW_NEGATIVE_CONFLICT"), "Conflitto da verificare")
         self.assertEqual(U.label_opportunity("ALTRO"), "ALTRO")
 
 
@@ -349,7 +456,7 @@ class DashboardRenderTests(td.DashBase):
         self.assertIn("DA VALUTARE ORA", flat)                                     # KPI delle decisioni di bid, separato
         page = self.render(ROOT / "DASHBOARD" / "pages" / "9_Opportunita_Search_Term.py")
         txt = str(page.mock_calls) + str([c.mock_calls for c in page._cols])
-        for needle in ("DA PROMUOVERE IN EXACT", "CANDIDATI NEGATIVI", "DA MONITORARE", "Valuta aggiunta in EXACT", "Valuta keyword negativa"):
+        for needle in ("DA PROMUOVERE IN EXACT", "CANDIDATI NEGATIVI", "DA MONITORARE", "Valuta promozione in EXACT", "Valuta come negativa"):
             self.assertIn(needle, txt)
         self.assertFalse([c for c in page.method_calls if c[0] in ("button", "form_submit_button")])
         self.assertEqual(hashlib.sha256(self.db.read_bytes()).hexdigest(), before)    # nessuna scrittura

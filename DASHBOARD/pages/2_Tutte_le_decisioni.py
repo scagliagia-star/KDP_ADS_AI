@@ -46,7 +46,7 @@ st.dataframe(cards.display_rows(rows, COLUMNS), use_container_width=True, hide_i
 
 st.subheader("Dettaglio righe")
 for d in rows[:200]:
-    with st.expander(f"{d.get('priority')} · {d.get('campaign_id')} · {d.get('target')} · {U.label_action(d.get('final_action'))}"):
+    with st.expander(f"{d.get('priority')} · {d.get('campaign_id')} · {U.display_target(d.get('target'))} · {U.label_action(d.get('final_action'))}"):
         st.markdown(cards.decision_badges(d), unsafe_allow_html=True)
         st.json({k: v for k, v in d.items() if v is not None}, expanded=False)
 if len(rows) > 200:

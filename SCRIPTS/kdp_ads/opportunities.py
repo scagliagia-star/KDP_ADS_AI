@@ -40,7 +40,8 @@ from .rules import BookCtx, CONF_ORDER, calculate_confidence, deep_merge
 from .snapshots import days_inclusive, period_id as make_period_id, window_label, window_role
 
 PROMOTE, NEGATIVE, WATCH, NO_ACTION = "PROMOTE_TO_EXACT", "NEGATIVE_CANDIDATE", "WATCH_SEARCH_TERM", "NO_ACTION"
-OPPORTUNITY_TYPES = (PROMOTE, NEGATIVE, WATCH, NO_ACTION)
+REVIEW_CONFLICT = "REVIEW_NEGATIVE_CONFLICT"                     # termine che vende ma gia' negativo: solo verifica manuale
+OPPORTUNITY_TYPES = (PROMOTE, NEGATIVE, WATCH, NO_ACTION, REVIEW_CONFLICT)
 SUGGESTION_NEW_EXACT = "Valuta creazione campagna EXACT"
 DISCOVERY_TYPES = frozenset({"PHRASE", "BROAD", "AUTO", "OTHER"})
 _CONF = ["LOW", "MEDIUM", "HIGH"]
@@ -73,6 +74,36 @@ def make_ctx(book: dict, rules: dict) -> BookCtx:
     return BookCtx(str(book["book_id"]), book.get("title") or "", str(book.get("marketplace") or ""), book.get("currency") or "USD",
                    float(book.get("price") or 0), float(book["royalty_per_copy"]), float(book["target_acos"]),
                    float(book["break_even_acos"]), book.get("phase") or "", rules)
+
+
+def normalize_added_as(raw):
+    """Normalizza il campo Amazon "Aggiunto come" (valore originale MAI modificato). Valori: "Parola chiave: a frase",
+    "Parola chiave: esatta", "Parola chiave neg.: esatta neg.", "Parola chiave neg.: frase neg.", combinazioni con virgola
+    ("a frase, esatta neg."). Ritorna {keyword_exact, keyword_phrase, negative_exact, negative_phrase} (bool)."""
+    out = {"keyword_exact": False, "keyword_phrase": False, "negative_exact": False, "negative_phrase": False}
+    if not raw:
+        return out
+    for tok in str(raw).lower().split(","):
+        tok = tok.strip()
+        neg = "neg" in tok
+        body = tok.split(":", 1)[1] if ":" in tok else tok
+        exact = "esatt" in body or "exact" in body
+        phrase = "frase" in body or "phrase" in body
+        if exact:
+            out["negative_exact" if neg else "keyword_exact"] = True
+        if phrase:
+            out["negative_phrase" if neg else "keyword_phrase"] = True
+    return out
+
+
+def negative_state(raws):
+    """Stato negativa di un (campagna, termine) dai valori "Aggiunto come" di tutte le sue righe: 'EXACT', 'PHRASE' o None."""
+    flags = [normalize_added_as(x) for x in raws]
+    if any(f["negative_exact"] for f in flags):
+        return "EXACT"
+    if any(f["negative_phrase"] for f in flags):
+        return "PHRASE"
+    return None
 
 
 def is_real_query(term):
@@ -168,6 +199,7 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
     # raggruppa per (campagna, termine) e periodo
     excluded = defaultdict(int)
     groups = defaultdict(lambda: defaultdict(list))             # (campaign, term) -> period -> rows
+    added, ad_groups = defaultdict(set), defaultdict(set)       # "Aggiunto come" e gruppi annunci per (campagna, termine)
     for r in st_rows:
         term = normalize_term(r["search_term"])
         if not is_real_query(r["search_term"]):
@@ -175,6 +207,11 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
             continue
         pid = r.get("period_id") or make_period_id(r["report_scope"], r["date_from"], r["date_to"])
         groups[(r["campaign_id"], term)][pid].append({**r, "period_id": pid})
+        key = (r["campaign_id"], term)
+        if r.get("added_as"):
+            added[key].add(str(r["added_as"]).strip())
+        if r.get("ad_group"):
+            ad_groups[key].add(str(r["ad_group"]).strip())
 
     records = []
     for (cid, term), per in sorted(groups.items()):
@@ -188,7 +225,8 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
         for r in (per[w["tactical"]] if w["tactical"] in per else per[w["confirm"]]):
             parents[r["target"]] += r["clicks"] or 0
         parent = max(parents, key=lambda k: (parents[k], str(k)))
-        rec = _decide(cid, ctype.get(cid, ""), term, parent, sorted(parents, key=str), T, C, w, ctx, cfg, exact_kw, any_kw)
+        rec = _decide(cid, ctype.get(cid, ""), term, parent, sorted(parents, key=str), T, C, w, ctx, cfg, exact_kw, any_kw,
+                      added_as=sorted(added[(cid, term)]), ad_groups=sorted(ad_groups[(cid, term)]))
         records.append(rec)
 
     seen_in = defaultdict(set)
@@ -203,8 +241,9 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
             "new_exact_campaign": new_exact_campaign_suggestion(records, campaigns, ctype, cfg)}
 
 
-def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any_kw):
+def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any_kw, added_as=(), ad_groups=()):
     flags, notes = [], []
+    negative = negative_state(added_as)                         # negativa gia' impostata, valutata solo in QUESTA campagna
     primary = T or C
     in_exact = exact_kw.get(term, [])
     elsewhere = [e for e in any_kw.get(term, []) if e[0] != cid]
@@ -299,6 +338,18 @@ def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any
         why.append("nessun segnale (pochi clic, nessun ordine)")
     if term_is_parent:
         flags.append("TERM_EQUALS_PARENT_TARGET")
+    if negative:
+        kind = "esatta" if negative == "EXACT" else "a frase"
+        flags.append("NEGATIVE_EXACT" if negative == "EXACT" else "NEGATIVE_PHRASE")
+        if promo(T) or promo(C):                                # vende ma e' gia' negativo: mai promozione, solo verifica
+            otype = REVIEW_CONFLICT
+            flags.append("NEGATIVE_CONFLICT")
+            why.append(f"il termine vende ma risulta gia' impostato come negativa {kind} in questa campagna: verificare prima di promuovere")
+        else:
+            if otype == NEGATIVE:
+                why.append(f"gia' negativa {kind} in questa campagna: nessuna nuova negativa")
+            otype = NO_ACTION
+            flags.append("ALREADY_NEGATIVE")
     return {
         "book_id": ctx.book_id, "marketplace": ctx.marketplace, "campaign_id": cid, "campaign_type": ctype_,
         "parent_target": parent, "parent_targets": parents, "parent_target_type": target_type(parent, ctype_),
@@ -309,8 +360,18 @@ def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any
         "opportunity_type": otype, "confidence": conf, "reason": "; ".join(why) + ".", "flags": flags,
         "already_in_exact": already_exact, "already_targeted_elsewhere": bool(elsewhere),
         "targeted_in": sorted({e[0] for e in elsewhere}), "also_seen_in": [],
+        "added_as_raw": list(added_as), "added_as_normalized": [k for k, v in _merge_added(added_as).items() if v],
+        "negative_match": negative, "ad_groups": list(ad_groups),
         "operationally_actionable": False, "manual_review_required": True,
     }
+
+
+def _merge_added(raws):
+    out = normalize_added_as(None)
+    for x in raws:
+        for k, v in normalize_added_as(x).items():
+            out[k] = out[k] or v
+    return out
 
 
 def _acos(w):
@@ -358,9 +419,12 @@ def load_inputs(conn, book_id, marketplace, legacy_marketplace=None):
             return "", ()
         return " AND (UPPER(marketplace)=? OR (marketplace IS NULL AND ?=?))", (mp, mp, legacy)
     out = {}
-    for key, table, cols in (("st_rows", "search_term_rows", "campaign_id, campaign_type, target, match_type, search_term, report_scope, date_from, date_to, period_id, impressions, clicks, spend, orders, sales"),
+    for key, table, cols in (("st_rows", "search_term_rows", "campaign_id, campaign_type, target, match_type, search_term, report_scope, date_from, date_to, period_id, impressions, clicks, spend, orders, sales{extra}"),
                              ("target_rows", "target_rows", "campaign_id, campaign_type, target, match_type, report_scope, date_from, date_to, period_id, raw_json")):
         sql, args = clause(table)
+        if key == "st_rows":
+            have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            cols = cols.replace("{extra}", "".join(f", {c}" for c in ("ad_group", "added_as") if c in have))
         out[key] = q(f"SELECT {cols} FROM {table} WHERE book_id=?{sql}", (book_id, *args))
     sql, args = clause("campaigns")
     out["campaigns"] = q(f"SELECT campaign_id, campaign_type FROM campaigns WHERE book_id=?{sql}", (book_id, *args))

@@ -96,6 +96,11 @@ class Repo:
             if b and b.get("marketplace"):
                 out = [{**b, "marketplace": str(b["marketplace"]).upper()}]
         legacy = self.legacy_marketplace(book_id)
+        if legacy and all(str(m["marketplace"]).upper() != legacy for m in out):
+            # marketplace storico del libro (riga `books`) assente da `book_marketplaces` (es. aggiunto un altro marketplace dopo): resta visibile
+            b = self.book(book_id) if "books" in self._tables() else None
+            if b and self._query("SELECT 1 FROM decision_runs WHERE book_id=? LIMIT 1", (book_id,)) if "decision_runs" in self._tables() else False:
+                out = [{**b, "marketplace": legacy}, *out]
         return sorted(out, key=lambda m: (m["marketplace"] != legacy, m["marketplace"]))      # marketplace principale per primo
 
     def _mp_clause(self, table, book_id, marketplace):

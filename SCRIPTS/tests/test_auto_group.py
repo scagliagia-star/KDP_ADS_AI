@@ -150,13 +150,13 @@ class AutoPipelineTests(AutoBuild):
 class DashboardLabelTests(AutoBuild):
     def test_italian_label_and_note(self):
         import ui_labels as U
-        self.assertEqual(U.label_target_type("AUTO_TARGETING_GROUP"), "Gruppo targeting automatico")
-        self.assertEqual(U.label_target_type("KEYWORD_TARGET"), "Keyword")
-        self.assertEqual(U.display_value("target_type", "AUTO_TARGETING_GROUP"), "Gruppo targeting automatico")
+        self.assertEqual(U.label_target_type("AUTO_TARGETING_GROUP"), "Gruppo di targeting automatico")
+        self.assertEqual(U.label_target_type("KEYWORD_TARGET"), "Parola chiave")
+        self.assertEqual(U.display_value("target_type", "AUTO_TARGETING_GROUP"), "Gruppo di targeting automatico")
         self.assertEqual(U.label_target_type("NUOVO_TIPO"), "NUOVO_TIPO")                    # valore sconosciuto: mostrato, mai nascosto
-        for g in GROUPS:
-            self.assertIn(g, U.AUTO_GROUPS_NOTE)
-        self.assertIn("non keyword manuali", U.AUTO_GROUPS_NOTE)
+        for g in GROUPS:                                                                      # nomi come nel pannello Amazon Ads in italiano
+            self.assertIn(U.AUTO_GROUP_NAMES[g], U.AUTO_GROUPS_NOTE)
+        self.assertIn("non parole chiave manuali", U.AUTO_GROUPS_NOTE)
 
     def render(self, page, db):
         old_env, old_mod = os.environ.get("KDP_ADS_DB"), sys.modules.get("streamlit")
@@ -194,13 +194,13 @@ class DashboardLabelTests(AutoBuild):
         db = Path(self.settings["db_path"])
         import components.cards as cards  # noqa: E402  (ricaricato dentro render; qui solo per i badge puri)
         d = [x for x in ds.decisions if x["target"] == "loose-match" and "negterm" not in x["action_key"]][0]
-        self.assertIn("Gruppo targeting automatico", cards.decision_badges(d))
+        self.assertIn("Gruppo di targeting automatico", cards.decision_badges(d))
         home = self.texts(self.render(ROOT / "DASHBOARD" / "panoramica.py", db))
-        self.assertIn("Gruppo targeting automatico", home)                                  # card del Centro azioni (loose-match azionabile)
-        self.assertIn("loose-match", home)
+        self.assertIn("Corrispondenza generica", home)                                         # card di COSA FARE OGGI (loose-match azionabile): nome italiano
+        # (il valore tecnico compare solo nel DETTAGLIO TECNICO di PERCHÉ?: la separazione e' verificata in test_overview con l'albero degli elementi)
         camp = self.texts(self.render(ROOT / "DASHBOARD" / "pages" / "4_Campagne.py", db))
         self.assertIn("targeting automatico", camp)
-        self.assertIn("non keyword manuali", camp)
+        self.assertIn("non parole chiave manuali", camp)
         allp = self.texts(self.render(ROOT / "DASHBOARD" / "pages" / "2_Tutte_le_decisioni.py", db))
         self.assertTrue(allp)
 

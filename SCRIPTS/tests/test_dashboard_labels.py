@@ -117,15 +117,15 @@ def render_all(db_path):
 class MappingTests(unittest.TestCase):
     def test_action_labels_as_requested(self):
         exp = {"NO_ACTION": "Nessuna azione", "HOLD": "Mantieni", "WATCH": "Monitora", "HOLD_PAUSED_TARGET": "Target in pausa",
-               "REVIEW_DELIVERY_BEFORE_BID_CHANGE": "Verifica erogazione prima di cambiare il bid",
-               "BID_DOWN_5_CANDIDATE": "Valuta riduzione bid −5%", "BID_DOWN_10_CANDIDATE": "Valuta riduzione bid −10%",
-               "BID_DOWN_15_CANDIDATE": "Valuta riduzione bid −15%", "BID_UP_5_CANDIDATE": "Valuta aumento bid +5%",
+               "REVIEW_DELIVERY_BEFORE_BID_CHANGE": "Verifica erogazione prima di cambiare l'offerta",
+               "BID_DOWN_5_CANDIDATE": "Valuta riduzione offerta −5%", "BID_DOWN_10_CANDIDATE": "Valuta riduzione offerta −10%",
+               "BID_DOWN_15_CANDIDATE": "Valuta riduzione offerta −15%", "BID_UP_5_CANDIDATE": "Valuta aumento offerta +5%",
                "REVIEW_TARGET_STATUS": "Verifica stato target"}
         for k, v in exp.items():
             self.assertEqual(U.label_action(k), v, k)
 
     def test_status_confidence_delivery_labels(self):
-        self.assertEqual([U.label_status(x) for x in ("ENABLED", "PAUSED", "UNKNOWN")], ["ATTIVO", "IN PAUSA", "STATO SCONOSCIUTO"])
+        self.assertEqual([U.label_status(x) for x in ("ENABLED", "PAUSED", "UNKNOWN")], ["Attivo", "In pausa", "Stato non disponibile"])
         self.assertEqual([U.label_confidence(x) for x in ("HIGH", "MEDIUM", "LOW")], ["ALTA", "MEDIA", "BASSA"])
         self.assertEqual([U.label_delivery(x) for x in ("DELIVERY_COLLAPSED", "DELIVERY_DECLINING", "DELIVERY_STABLE",
                                                          "DELIVERY_INCREASING", "UNKNOWN")],
@@ -170,9 +170,9 @@ class MappingTests(unittest.TestCase):
         raw = ("FINAL BID_DOWN_10_CANDIDATE (-10%) [rule C1_DOWN_CONFIRMED, conf HIGH, prio P1]. Lifetime: BID_DOWN_10_CANDIDATE [HIGH_VOLUME_INEFFICIENT] "
                "— 1761 clic, 213 ordini, spend $2040.74 | Delivery: DELIVERY_COLLAPSED (TARGET:SEARCH_TERM) | Cross: nessun overlap")
         out = U.label_reason(raw)
-        self.assertIn("DECISIONE FINALE: Valuta riduzione bid −10% (-10%)", out)
+        self.assertIn("DECISIONE FINALE: Valuta riduzione offerta −10% (-10%)", out)
         self.assertIn("affidabilità ALTA", out)
-        self.assertIn("Storico completo: Valuta riduzione bid −10%", out)
+        self.assertIn("Storico completo: Valuta riduzione offerta −10%", out)
         self.assertIn("Erogazione: Erogazione crollata (TARGET:SEARCH_TERM)", out)
         self.assertIn("HIGH_VOLUME_INEFFICIENT", out)                 # codici di classificazione: invariati
         self.assertIn("C1_DOWN_CONFIRMED", out)
@@ -195,9 +195,9 @@ class MappingTests(unittest.TestCase):
         self.assertIn("B0FTFJL6RB", U.label_reason(kw))
         rec = "reduce EXACT bid candidate (BID_DOWN_5_CANDIDATE sul target che cattura il termine: chair tai chi); keep PHRASE"
         out = U.label_reason(rec)
-        self.assertIn("candidato alla riduzione del bid in EXACT", out)
+        self.assertIn("candidato alla riduzione dell'offerta in EXACT", out)
         self.assertIn("; mantieni PHRASE", out)
-        self.assertIn("(Valuta riduzione bid −5% sul target che cattura il termine: chair tai chi)", out)
+        self.assertIn("(Valuta riduzione offerta −5% sul target che cattura il termine: chair tai chi)", out)
         self.assertIn("affidabilità ALTA", U.label_reason("EXACT ACOS 53.1% (254 clic, spesa $241.81, conf HIGH) vs PHRASE"))
 
     def test_acos_without_sales_is_not_zero(self):
@@ -224,7 +224,7 @@ class RenderTests(td.DashBase):
         self.assertEqual(ctx.decisions, before)                                         # nessuna mutazione dei dati
         self.assertIn("Azione finale", rows[0])
         self.assertIn("Target in pausa", {r["Azione finale"] for r in rows})            # HOLD_PAUSED_TARGET
-        self.assertTrue({r["Stato target"] for r in rows} <= {"ATTIVO", "IN PAUSA", "STATO SCONOSCIUTO", "n/d"})
+        self.assertTrue({r["Stato target"] for r in rows} <= {"Attivo", "In pausa", "Stato non disponibile", "n/d"})
         self.assertTrue({d["final_action"] for d in ctx.decisions} & {"HOLD_PAUSED_TARGET", "BID_DOWN_10_CANDIDATE"})
         self.assertEqual({d["target_status"] for d in ctx.decisions}, {"ENABLED", "PAUSED"})
 
@@ -235,16 +235,16 @@ class RenderTests(td.DashBase):
         self.assertEqual(hashlib.sha256(self.db.read_bytes()).hexdigest(), before)
         allp = "\n".join("\n".join(v) for v in shown.values())
         for need in ("MODALITÀ SOLA LETTURA", "Nessuna modifica alle campagne Amazon Ads viene eseguita automaticamente.",
-                     "Dashboard di Supporto alle Decisioni", "CENTRO AZIONI", "AVVISI", "DECISIONI TOTALI", "DA VALUTARE ORA",
-                     "REVISIONE RICHIESTA", "TARGET IN PAUSA", "Qui trovi solo le decisioni che richiedono la tua attenzione manuale.",
+                     "Dashboard di Supporto alle Decisioni", "COSA FARE OGGI", "AVVISI", "EROGAZIONE DA VERIFICARE", "DA VALUTARE ORA",
+                     "OPPORTUNITÀ EXACT", "TARGET IN PAUSA", "KEYWORD DA VALUTARE COME NEGATIVE",
                      "ACOS obiettivo", "ACOS di pareggio", "Royalty per copia", "Prezzo libro", "Ultimo aggiornamento",
-                     "Run decisionale", "Run di analisi", "PERCHÉ?", "Affidabilità", "Bid attuale", "Variazione bid",
-                     "AVVISI SUI DATI", "Tutte le decisioni", "Target in pausa", "Panoramica campagne", "Erogazione", "(Delivery)",
+                     "Run decisionale", "Run di analisi", "PERCHÉ?", "Affidabilità", "Offerta attuale", "Variazione",
+                     "AVVISI DATI", "Tutte le decisioni", "Target in pausa", "Panoramica campagne", "Erogazione", "(Delivery)",
                      "Confronto tra campagne", "Ereditato dal run di analisi", "Gravità: n/d", "Libro", "Selezione"):
             self.assertIn(need, allp, need)
         for bad in ENGLISH_UI:
             self.assertNotIn(bad, allp, f"testo inglese residuo: {bad!r}")
-        self.assertIn("Valuta riduzione bid", allp)
+        self.assertIn("ABBASSA OFFERTA", allp)
 
     def test_menu_home_is_panoramica_not_app(self):
         log, old = [], sys.modules.get("streamlit")

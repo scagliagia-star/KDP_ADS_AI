@@ -18,7 +18,7 @@ paused = [d for d in ctx.decisions if d.get("target_status") == "PAUSED"]
 with_action = [d for d in paused if d.get("underlying_candidate_action")]
 without = [d for d in paused if not d.get("underlying_candidate_action")]
 st.metric("TARGET IN PAUSA", len(paused))
-st.caption("Un target in pausa non può avere un'azione di bid operativa: l'analisi economica è conservata come azione potenziale.")
+st.caption("Un target in pausa non può avere un'azione operativa sull'offerta: l'analisi economica è conservata come azione potenziale.")
 
 
 def acos_of(d, prefix):
@@ -27,7 +27,7 @@ def acos_of(d, prefix):
 
 L = U.label_column
 st.subheader(f"B · In pausa con azione potenziale ({len(with_action)})")
-rows = [{L("campaign"): d["campaign_id"], L("target"): d["target"], L("priority"): d.get("priority"),
+rows = [{L("campaign"): d["campaign_id"], L("target"): U.display_target(d["target"]), L("priority"): d.get("priority"),
          L("underlying_candidate_action"): U.label_action(d["underlying_candidate_action"]),
          L("final_action"): U.label_action(d.get("final_action")),
          L("lifetime_acos"): acos_of(d, "lifetime"), L("recent_acos"): acos_of(d, "recent"),
@@ -35,11 +35,11 @@ rows = [{L("campaign"): d["campaign_id"], L("target"): d["target"], L("priority"
 st.dataframe(rows, use_container_width=True, hide_index=True)
 for d in with_action:
     if "RECENT_SPEND_ON_PAUSED_TARGET" in (d.get("flags") or ""):
-        st.caption(f"{U.label_flag('RECENT_SPEND_ON_PAUSED_TARGET')} · {d['campaign_id']} · {d['target']}: "
+        st.caption(f"{U.label_flag('RECENT_SPEND_ON_PAUSED_TARGET')} · {d["campaign_id"]} · {U.display_target(d["target"])}: "
                    "spesa recente su un target in pausa, causa non dedotta.")
 
 st.subheader(f"A · In pausa senza azione potenziale ({len(without)})")
-rows = [{L("campaign"): d["campaign_id"], L("target"): d["target"], L("priority"): d.get("priority"),
+rows = [{L("campaign"): d["campaign_id"], L("target"): U.display_target(d["target"]), L("priority"): d.get("priority"),
          L("final_action"): U.label_action(d.get("final_action")),
          L("lifetime_clicks"): d.get("lifetime_clicks"), L("lifetime_acos"): acos_of(d, "lifetime"),
          L("flags"): U.label_flags(d.get("flags"))} for d in without]

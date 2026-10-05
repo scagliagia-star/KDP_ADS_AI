@@ -31,7 +31,7 @@ rows = []
 for d in tgt:
     det = parse_delivery_detail(d.get("reason"))
     ratio = d.get("delivery_ratio") if d.get("delivery_ratio") is not None else (det["ratio"] if det else None)
-    rows.append({L("campaign"): d["campaign_id"], L("target"): d["target"], "Origine": U.label_delivery_source("TARGET"),
+    rows.append({L("campaign"): d["campaign_id"], L("target"): U.display_target(d["target"]), "Origine": U.label_delivery_source("TARGET"),
                  "Segnale": U.label_delivery(d.get("delivery_signal")),
                  "Impressioni/giorno storiche": F.num(det["reference"], 2) if det else F.ND,
                  "Impressioni/giorno recenti": F.num(det["recent"], 2) if det else F.ND,

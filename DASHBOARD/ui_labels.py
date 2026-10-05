@@ -31,6 +31,25 @@ SIDEBAR_MARKETPLACE = "Marketplace"
 SIDEBAR_RUN = "Run decisionale"
 SIDEBAR_READ_ONLY = "SOLA LETTURA · il database viene aperto in sola lettura."
 LATEST_TAG = "PIÙ RECENTE"
+# ------------------------------------------------------------------ Panoramica operativa ("cosa devo fare oggi su Amazon Ads?")
+OV_INTRO = "Cosa devo fare oggi su Amazon Ads? Tutto ciò che serve per decidere è qui sotto. La dashboard non modifica nulla su Amazon Ads: le azioni restano manuali."
+OV_KPI_TITLE = "1 · KPI PRINCIPALI"
+OV_TODAY = "COSA FARE OGGI"
+OV_EXACT = "KEYWORD DA METTERE IN EXACT"
+OV_EXACT_NEW = "CREA CAMPAGNA EXACT CON QUESTE KEYWORD"
+OV_NEGATIVE = "KEYWORD DA VALUTARE COME NEGATIVE"
+OV_CONFLICTS = "CONFLITTI DA VERIFICARE"
+OV_DELIVERY = "EROGAZIONE DA VERIFICARE"
+OV_PAUSED = "TARGET IN PAUSA RILEVANTI"
+OV_MONITOR = "DA MONITORARE"
+OV_GOOD = "STA ANDANDO BENE / NON TOCCARE"
+OV_WARNINGS = "AVVISI DATI"
+OV_OTHERS = "ALTRE DECISIONI · HOLD / WATCH"
+OV_WHY = "PERCHÉ?"
+OV_TECH = "DETTAGLIO TECNICO"
+OV_SEE_ALL_OPP = "Mostra tutte in Opportunità Search Term"
+OV_KPI = {"actions": "DA VALUTARE ORA", "exact": "OPPORTUNITÀ EXACT", "negatives": "CANDIDATI NEGATIVI", "paused": "TARGET IN PAUSA",
+          "warnings": "AVVISI", "delivery": "EROGAZIONE DA VERIFICARE", "conflicts": "CONFLITTI DA VERIFICARE"}
 ACTION_CENTER_TITLE = "CENTRO AZIONI"
 ACTION_CENTER_DESCRIPTION = ("Qui trovi solo le decisioni che richiedono la tua attenzione manuale. "
                              "La dashboard non modifica automaticamente le campagne Amazon Ads.")
@@ -56,20 +75,20 @@ ACTION_LABELS = {
     "HOLD": "Mantieni",
     "WATCH": "Monitora",
     "HOLD_PAUSED_TARGET": "Target in pausa",
-    "REVIEW_DELIVERY_BEFORE_BID_CHANGE": "Verifica erogazione prima di cambiare il bid",
-    "BID_DOWN_5_CANDIDATE": "Valuta riduzione bid −5%",
-    "BID_DOWN_10_CANDIDATE": "Valuta riduzione bid −10%",
-    "BID_DOWN_15_CANDIDATE": "Valuta riduzione bid −15%",
-    "BID_UP_5_CANDIDATE": "Valuta aumento bid +5%",
+    "REVIEW_DELIVERY_BEFORE_BID_CHANGE": "Verifica erogazione prima di cambiare l'offerta",
+    "BID_DOWN_5_CANDIDATE": "Valuta riduzione offerta −5%",
+    "BID_DOWN_10_CANDIDATE": "Valuta riduzione offerta −10%",
+    "BID_DOWN_15_CANDIDATE": "Valuta riduzione offerta −15%",
+    "BID_UP_5_CANDIDATE": "Valuta aumento offerta +5%",
     "REVIEW_TARGET_STATUS": "Verifica stato target",
     # valori che il motore puo' produrre ma non elencati nella richiesta (tradotti per coerenza)
     "PAUSE_CANDIDATE": "Valuta pausa del target",
-    "NEGATIVE_CANDIDATE": "Valuta keyword negativa",
+    "NEGATIVE_CANDIDATE": "Valuta come negativa",
     "INSUFFICIENT_DATA": "Dati insufficienti",
     "BID_UP_5_OPPORTUNITY": "Opportunità di crescita (+5%)",
-    "BID_UP_10_CANDIDATE": "Valuta aumento bid +10%",
+    "BID_UP_10_CANDIDATE": "Valuta aumento offerta +10%",
 }
-STATUS_LABELS = {"ENABLED": "ATTIVO", "PAUSED": "IN PAUSA", "UNKNOWN": "STATO SCONOSCIUTO"}
+STATUS_LABELS = {"ENABLED": "Attivo", "PAUSED": "In pausa", "UNKNOWN": "Stato non disponibile"}
 CONFIDENCE_LABELS = {"HIGH": "ALTA", "MEDIUM": "MEDIA", "LOW": "BASSA"}
 DELIVERY_LABELS = {
     "DELIVERY_COLLAPSED": "Erogazione crollata",
@@ -84,22 +103,26 @@ DELIVERY_SOURCE_LABELS = {
     "UNKNOWN": "Origine non disponibile",
 }
 TARGET_TYPE_LABELS = {
-    "AUTO_TARGETING_GROUP": "Gruppo targeting automatico",
-    "KEYWORD_TARGET": "Keyword",
-    "PRODUCT_TARGET": "Target prodotto (ASIN/categoria)",
+    "AUTO_TARGETING_GROUP": "Gruppo di targeting automatico",
+    "KEYWORD_TARGET": "Parola chiave",
+    "PRODUCT_TARGET": "Target prodotto",
 }
-AUTO_GROUPS_NOTE = ("loose-match, close-match, complements e substitutes sono gruppi di targeting automatico di Amazon (campagna Auto), "
-                    "non keyword manuali: i termini di ricerca che generano restano termini reali.")
+# nomi dei gruppi di targeting automatico come nel pannello Amazon Ads in italiano (i valori tecnici restano nel DB)
+AUTO_GROUP_NAMES = {"loose-match": "Corrispondenza generica", "close-match": "Corrispondenza stretta", "substitutes": "Sostituti", "complements": "Complementi"}
+MATCH_TYPE_LABELS = {"EXACT": "Exact", "PHRASE": "A frase", "BROAD": "Generica", "A frase": "A frase", "Exact": "Exact", "Generica": "Generica"}
+AUTO_GROUPS_NOTE = ("Corrispondenza generica, Corrispondenza stretta, Sostituti e Complementi sono gruppi di targeting automatico di Amazon (campagna Auto), "
+                    "non parole chiave manuali: i termini di ricerca che generano restano termini reali.")
 PRIORITY_LABELS = {"P1":"P1 · evidenza forte", "P2": "P2 · attenzione", "P3": "P3 · da monitorare", "P4": "P4 · bassa priorità"}
 AGREEMENT_LABELS = {"AGREE": "Concorda", "DISAGREE": "Non concorda", "PARTIAL": "Concorda in parte", "NOT_COMPARABLE": "Non confrontabile"}
 WARNING_KIND_LABELS = {"DATA_WARNING": "AVVISO SUI DATI", "NOTA": "NOTA", "ALTRO": "ALTRO"}
 REPORT_TYPE_LABELS = {"TARGETING": "Report Target", "SEARCH_TERM": "Report Termini di ricerca"}
-# ------------------------------------------------------------------ Opportunita' Search Term (layer separato dalle decisioni di bid)
+# ------------------------------------------------------------------ Opportunita' Search Term (layer separato dalle decisioni sulle offerte)
 OPP_LABELS = {
-    "PROMOTE_TO_EXACT": "Valuta aggiunta in EXACT",
-    "NEGATIVE_CANDIDATE": "Valuta keyword negativa",
-    "WATCH_SEARCH_TERM": "Monitora search term",
+    "PROMOTE_TO_EXACT": "Valuta promozione in EXACT",
+    "NEGATIVE_CANDIDATE": "Valuta come negativa",
+    "WATCH_SEARCH_TERM": "Monitora termine di ricerca",
     "NO_ACTION": "Nessuna azione",
+    "REVIEW_NEGATIVE_CONFLICT": "Conflitto da verificare",
 }
 # ------------------------------------------------------------------ Lancio nuovo libro (bozza locale, nessuna rete)
 LAUNCH_PAGE_TITLE = "Lancio nuovo libro"
@@ -116,6 +139,15 @@ LAUNCH_KW_BUTTON = "GENERA PIANO KEYWORD"
 LAUNCH_KW_INTRO = ("Piano keyword Ads iniziale ricavato SOLO dai testi della bozza (titolo, sottotitolo, descrizione, keyword KDP, categorie). "
                    "Non usa volumi di ricerca né dati esterni e non crea nulla su Amazon: sono proposte da valutare a mano. Il piano viene salvato nella bozza.")
 LAUNCH_PROFILE_SECTION = "PROFILO DEL LIBRO"
+LAUNCH_STRATEGY_SECTION = "STRATEGIA DI LANCIO"
+LAUNCH_STRATEGY_INTRO = ("Preset PHRASE_FIRST_AUTO: una lista PHRASE molto selezionata più una campagna AUTO in parallelo. Nessuna campagna EXACT iniziale: "
+                         "EXACT si alimenta dopo il lancio dai Search Term reali che vendono. Bid e keyword sono solo SUGGERITI: nulla viene creato né applicato su Amazon.")
+LAUNCH_STRATEGY_PHRASE = "A · PHRASE DA LANCIARE"
+LAUNCH_STRATEGY_AUTO = "B · AUTO"
+LAUNCH_STRATEGY_EXACT = "C · EXACT"
+LAUNCH_STRATEGY_COPY = "Copia keyword PHRASE"
+LAUNCH_STRATEGY_EXACT_TEXT = "Da alimentare dai vincitori reali dopo il lancio"
+LAUNCH_STRATEGY_TIERS = {"TOP_TIER": "Top tier", "CORE": "Core", "BROAD_STRONG_MARKET": "Ampia (mercato forte)", "BROAD": "Ampia / discovery"}
 LAUNCH_TITLE_QUERY_SECTION = "TITOLO PROPRIO / QUERY DEL TITOLO"
 LAUNCH_TITLE_QUERY_NOTE = ("Query quasi identiche al titolo del nostro libro (BRANDED_SELF / TITLE_QUERY): non sono keyword commerciali generiche e non fanno "
                            "parte delle keyword di lancio principali. Valutale solo come campagna brand/difensiva.")
@@ -165,23 +197,26 @@ LAUNCH_EVIDENCE_SOURCE_LABELS = {"title": "titolo", "subtitle": "sottotitolo", "
 LAUNCH_LEVEL_LABELS = {"NONE": "Nessuna", "LOW": "Bassa", "MEDIUM": "Media", "HIGH": "Alta", "VERY_HIGH": "Molto alta"}
 LAUNCH_PROVIDER_NOTE = "Arricchimento esterno (titolo, categorie, prezzo, recensioni dei competitor): non disponibile, nessun provider collegato."
 OPP_PAGE_TITLE = "Opportunità Search Term"
-OPP_INTRO = ("Suggerimenti manuali ricavati dai search term reali (query digitate dagli utenti) di PHRASE, Auto e altre campagne. "
-             "Sono separati dalle decisioni di bid: nessuna campagna, keyword o negativa viene creata o modificata automaticamente.")
+OPP_INTRO = ("Suggerimenti manuali ricavati dai termini di ricerca reali (query digitate dagli utenti) di PHRASE, Auto e altre campagne. "
+             "Sono separati dalle decisioni sulle offerte: nessuna campagna, keyword o negativa viene creata o modificata automaticamente.")
 OPP_SECTION_PROMOTE = "A · DA PROMUOVERE IN EXACT"
 OPP_SECTION_NEGATIVE = "B · CANDIDATI NEGATIVI"
 OPP_SECTION_WATCH = "C · DA MONITORARE"
+OPP_SECTION_CONFLICT = "D · CONFLITTI DA VERIFICARE"
 OPP_KPI_EXACT = "OPPORTUNITÀ EXACT"
 OPP_KPI_NEGATIVE = "CANDIDATI NEGATIVI"
 OPP_NEW_CAMPAIGN = "Valuta creazione campagna EXACT"
-OPP_NEW_CAMPAIGN_TEXT = ("Ci sono almeno {n} search term unici da promuovere in EXACT provenienti da PHRASE/Auto e in questo marketplace non esiste "
+OPP_NEW_CAMPAIGN_TEXT = ("Ci sono almeno {n} termini di ricerca unici da promuovere in EXACT provenienti da PHRASE/Auto e in questo marketplace non esiste "
                          "una campagna EXACT. Suggerimento strutturale, non operativo: nessuna campagna viene creata.")
 OPP_AGREEMENT_LABELS = {"CONCORDI": "Finestre concordi", "DISCORDI": "Finestre discordanti", "SOLO_UNA_FINESTRA": "Una sola finestra",
                         "SOLO_65D": "Solo 65 giorni (30 giorni non importato)", "NON_CONFERMATO_30D": "Non confermato negli ultimi 30 giorni"}
 OPP_FLAG_LABELS = {"ALREADY_IN_EXACT": "Già in EXACT", "EXACT_PAUSED": "Keyword EXACT in pausa", "DUPLICATE_ACROSS_CAMPAIGNS": "Presente in più campagne",
-                   "MULTI_PARENT_TARGET": "Catturato da più target", "TERM_EQUALS_PARENT_TARGET": "Coincide con il target padre"}
+                   "MULTI_PARENT_TARGET": "Catturato da più target", "TERM_EQUALS_PARENT_TARGET": "Coincide con il target padre",
+                   "NEGATIVE_EXACT": "Già negativa esatta", "NEGATIVE_PHRASE": "Già negativa a frase", "ALREADY_NEGATIVE": "Già negativa",
+                   "NEGATIVE_CONFLICT": "Conflitto con negativa"}
 OPP_NEGATIVE_TYPE_NOTE = "Il tipo di negativa (exact o phrase) non è deciso."
 FLAG_LABELS = {
-    "ZERO_ORDER_WASTE": "Spesa senza ordini",
+    "ZERO_ORDER_WASTE": "Spesa senza acquisti",
     "HIGH_VOLUME": "Alto volume",
     "HIGH_VOLUME_CAP": "Limite di sicurezza alto volume",
     "TARGET_STATUS_UNKNOWN": "Stato target sconosciuto",
@@ -202,7 +237,7 @@ FLAG_LABELS = {
 COLUMN_LABELS = {
     "priority": "Priorità", "campaign_id": "Campagna", "campaign": "Campagna", "target": "Target", "target_status": "Stato target",
     "final_action": "Azione finale", "underlying_candidate_action": "Azione potenziale",
-    "operationally_actionable": "Azionabile ora", "current_bid": "Bid attuale", "bid_change_pct": "Variazione bid",
+    "operationally_actionable": "Azionabile ora", "current_bid": "Offerta attuale", "bid_change_pct": "Variazione offerta",
     "confidence": "Affidabilità", "delivery_signal": "Erogazione", "delivery_source": "Origine del segnale",
     "lifetime_acos": "ACOS storico completo", "recent_acos": "ACOS recente", "lifetime_clicks": "Clic storico completo",
     "reason": "Perché", "flags": "Segnalazioni", "target_type": "Tipo di target",
@@ -222,6 +257,15 @@ def label_action(v):
 
 def label_status(v):
     return _get(STATUS_LABELS, v)
+
+
+def display_target(v):
+    """Nome del target per la UI principale: i gruppi di targeting automatico sono tradotti, il resto resta com'e'."""
+    return ND if v in (None, "") else AUTO_GROUP_NAMES.get(str(v), str(v))
+
+
+def label_match_type(v):
+    return ND if v in (None, "") else MATCH_TYPE_LABELS.get(str(v), str(v))
 
 
 def label_confidence(v):
@@ -388,7 +432,7 @@ _PHRASES = [
     (re.compile(r"\bSAFETY DELIVERY\b"), "SICUREZZA EROGAZIONE"), (re.compile(r"\bimpressions/giorno\b"), "impressioni/giorno"),
     (re.compile(r"\bclicks/giorno\b"), "clic/giorno"), (re.compile(r"\bBETTER_IN_([A-Za-z0-9_]+)"), r"Meglio in \1"),
     (re.compile(r"\bSIMILAR_PERFORMANCE\b"), "Performance simile"),
-    (re.compile(r"\breduce (EXACT|PHRASE|COMPETITOR|[A-Z][A-Z0-9_]+) bid candidate"), r"candidato alla riduzione del bid in \1"),
+    (re.compile(r"\breduce (EXACT|PHRASE|COMPETITOR|[A-Z][A-Z0-9_]+) bid candidate"), r"candidato alla riduzione dell'offerta in \1"),
     (re.compile(r"; keep ([A-Z][A-Z0-9_]+)"), r"; mantieni \1"),
     (re.compile(r"(?<=\[)WORSE(?=[\],])"), "PEGGIORE"), (re.compile(r"(?<=\[)BETTER(?=[\],])"), "MIGLIORE"),
     (re.compile(r"(?<=\[)OTHER(?=[\],])"), "ALTRA"),
@@ -416,6 +460,15 @@ def display_value(column, v):
         return ND
     if column in ("final_action", "underlying_candidate_action", "latest_period_action", "growth_opportunity"):
         return label_action(v)
+    if column == "bid_change_pct":
+        try:
+            return f"{float(v):+.0f}%"                                       # testo, mai numeri misti a "n/d" nella stessa colonna
+        except (TypeError, ValueError):
+            return str(v)
+    if column == "target":
+        return display_target(v)
+    if column == "match_type":
+        return label_match_type(v)
     if column == "target_status":
         return label_status(v)
     if column == "target_type":

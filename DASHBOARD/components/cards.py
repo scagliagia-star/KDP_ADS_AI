@@ -50,7 +50,7 @@ def metrics_block(st, title, d, prefix, extra=None):
     st.markdown(f"**{title}**")
     cols = st.columns(5)
     cols[0].metric("Clic", F.num(d.get(f"{prefix}_clicks")))
-    cols[1].metric("Ordini", F.num(d.get(f"{prefix}_orders")))
+    cols[1].metric("Acquisti", F.num(d.get(f"{prefix}_orders")))
     cols[2].metric("Spesa", F.money(d.get(f"{prefix}_spend")))
     cols[3].metric("Vendite", F.money(d.get(f"{prefix}_sales")))
     cols[4].metric("ACOS", F.acos(d.get(f"{prefix}_acos")) if d.get(f"{prefix}_clicks") is not None else F.ND)
@@ -66,8 +66,8 @@ def decision_card(st, d):
         if d.get("target_type") == "AUTO_TARGETING_GROUP":
             st.caption(f"{U.label_target_type('AUTO_TARGETING_GROUP')}: {U.AUTO_GROUPS_NOTE}")
         c = st.columns(4)
-        c[0].metric("Bid attuale", F.money(d.get("current_bid")))
-        c[1].metric("Variazione bid", F.bid_change(d.get("bid_change_pct")))
+        c[0].metric("Offerta attuale", F.money(d.get("current_bid")))
+        c[1].metric("Variazione offerta", F.bid_change(d.get("bid_change_pct")))
         c[2].metric("Affidabilità", U.label_confidence(d.get("confidence")))
         c[3].metric("Origine del segnale di erogazione", U.label_delivery_source(d.get("delivery_source")))
         if d.get("underlying_candidate_action"):
@@ -109,7 +109,7 @@ def kpi_row(st, summary):
 
 
 def opportunity_kpis(st, repo, book, marketplace):
-    """KPI SEPARATI dalle decisioni di bid: opportunita' EXACT e candidati negativi (termini unici). Se non calcolabili: n/d."""
+    """KPI SEPARATI dalle decisioni sulle offerte: opportunita' EXACT e candidati negativi (termini unici). Se non calcolabili: n/d."""
     from data_access.repository import RepoError
     from kdp_ads.opportunities import NEGATIVE, PROMOTE, unique_terms
     try:
@@ -119,7 +119,7 @@ def opportunity_kpis(st, repo, book, marketplace):
     c = st.columns(2)
     c[0].metric(U.OPP_KPI_EXACT, F.ND if res is None else len(unique_terms(res["records"], PROMOTE)))
     c[1].metric(U.OPP_KPI_NEGATIVE, F.ND if res is None else len(unique_terms(res["records"], NEGATIVE)))
-    st.caption("Suggerimenti sui search term reali, separati da «DA VALUTARE ORA» (decisioni di bid). Dettaglio nella pagina Opportunità Search Term.")
+    st.caption("Suggerimenti sui termini di ricerca reali, separati da «DA VALUTARE ORA» (decisioni sulle offerte). Dettaglio nella pagina Opportunità Search Term.")
     if res and res.get("new_exact_campaign"):
         st.info(f"{U.OPP_NEW_CAMPAIGN}: " + U.OPP_NEW_CAMPAIGN_TEXT.format(n=res["new_exact_campaign"]["min_terms"]))
 

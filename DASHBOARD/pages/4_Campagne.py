@@ -17,7 +17,7 @@ if not camps:
     st.info("Nessun dato di campagna importato.")
     st.stop()
 st.caption("Storico completo, ultimi 65 giorni e ultimi 30 giorni sono snapshot distinti e sovrapposti: sono mostrati affiancati, mai sommati. "
-           "Profitto = stima diretta (ordini × royalty − spesa).")
+           "Profitto = stima diretta (acquisti × royalty − spesa).")
 for c in camps:
     with st.container(border=True):
         st.markdown(f"### {c['campaign_id']} · {c.get('campaign_type') or F.ND}")
@@ -27,15 +27,15 @@ for c in camps:
             st.write("Nessuna finestra importata.")
             continue
         rows = [{"Finestra": U.label_window(w["window"]), "Report di origine": U.label_report_type(w["report_type"]),
-                 "Periodo": w["period_id"], "Giorni": w["days"] or "-",
-                 "Clic": F.num(w["clicks"]), "Spesa": F.money(w["spend"]), "Ordini": F.num(w["orders"]), "Vendite": F.money(w["sales"]),
+                 "Periodo": w["period_id"], "Giorni": str(w["days"]) if w["days"] else "-",
+                 "Clic": F.num(w["clicks"]), "Spesa": F.money(w["spend"]), "Acquisti": F.num(w["orders"]), "Vendite": F.money(w["sales"]),
                  "ACOS": F.acos(w["acos"]), "Profitto diretto stimato": F.money(w["estimated_profit"])} for w in c["windows"]]
         st.dataframe(rows, use_container_width=True, hide_index=True)
         recent = [w for w in c["windows"] if w["days"]]
         if len(recent) >= 2:
             st.markdown("**Andamento al giorno** (ogni finestra è normalizzata sulla propria durata)")
             for label, key, fmt in (("Spesa / giorno", "spend_per_day", F.money), ("Clic / giorno", "clicks_per_day", lambda v: F.num(v, 2)),
-                                    ("Ordini / giorno", "orders_per_day", lambda v: F.num(v, 2))):
+                                    ("Acquisti / giorno", "orders_per_day", lambda v: F.num(v, 2))):
                 mx = max((w[key] or 0) for w in recent)
                 cols = st.columns(len(recent))
                 for col, w in zip(cols, recent):
