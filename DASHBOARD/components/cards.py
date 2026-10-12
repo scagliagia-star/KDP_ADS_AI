@@ -138,11 +138,24 @@ def warnings_section(st, warnings):
             st.write(w["text"])
 
 
+def homogenize_columns(rows):
+    """SOLO presentazione: se una colonna mescola numeri e testo (tipicamente numeri e "n/d") i numeri diventano testo, cosi' Arrow/Streamlit non
+    segnala "Expected bytes, got a 'float'". Colonne gia' omogenee, motore e DB non vengono toccati."""
+    mixed = set()
+    for key in (rows[0] if rows else {}):
+        kinds = {isinstance(r.get(key), str) for r in rows if r.get(key) is not None}
+        if kinds == {True, False}:
+            mixed.add(key)
+    if not mixed:
+        return rows
+    return [{k: (format(v, "g") if k in mixed and v is not None and not isinstance(v, (str, bool)) else v) for k, v in r.items()} for r in rows]
+
+
 def table_rows(decisions, columns):
     """Lista di dict leggibili per st.dataframe (valori NULL -> n/d). Intestazioni e valori tecnici invariati."""
-    return [{c: (F.ND if d.get(c) is None else d.get(c)) for c in columns} for d in decisions]
+    return homogenize_columns([{c: (F.ND if d.get(c) is None else d.get(c)) for c in columns} for d in decisions])
 
 
 def display_rows(decisions, columns):
     """Come table_rows ma per l'utente: intestazioni e codici tecnici mostrati in italiano (i dati non cambiano)."""
-    return [{U.label_column(c): U.display_value(c, d.get(c)) for c in columns} for d in decisions]
+    return homogenize_columns([{U.label_column(c): U.display_value(c, d.get(c)) for c in columns} for d in decisions])

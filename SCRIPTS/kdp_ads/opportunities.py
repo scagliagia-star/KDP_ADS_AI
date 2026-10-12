@@ -36,6 +36,7 @@ import re
 import unicodedata
 from collections import defaultdict
 
+from .dataquality import impossible_warnings, split_search_terms
 from .metrics import AUTO_TARGET_GROUPS, compute_metrics, normalize_term, product_asin, target_type, term_matches_target
 from .rules import BookCtx, CONF_ORDER, calculate_confidence, deep_merge
 from .snapshots import days_inclusive, period_id as make_period_id, window_label, window_role
@@ -44,7 +45,8 @@ PROMOTE, NEGATIVE, WATCH, NO_ACTION = "PROMOTE_TO_EXACT", "NEGATIVE_CANDIDATE", 
 REVIEW_CONFLICT = "REVIEW_NEGATIVE_CONFLICT"                     # termine che vende ma gia' negativo: solo verifica manuale
 PROMOTED = "PROMOTED_TO_EXACT"                                   # negativa in FRASE + keyword gia' in EXACT: promozione completata, nessuna azione
 PRODUCT_WINNER = "WINNING_PRODUCT_TARGET"                        # ASIN / product target che vende bene: mai una keyword EXACT
-OPPORTUNITY_TYPES = (PROMOTE, NEGATIVE, WATCH, NO_ACTION, REVIEW_CONFLICT, PROMOTED, PRODUCT_WINNER)
+SUGGEST_PHRASE = "SUGGEST_IN_PHRASE"                              # vincitore AUTO moderato: prima validazione in FRASE, non ancora EXACT
+OPPORTUNITY_TYPES = (PROMOTE, NEGATIVE, WATCH, NO_ACTION, REVIEW_CONFLICT, PROMOTED, PRODUCT_WINNER, SUGGEST_PHRASE)
 SUGGESTION_NEW_EXACT = "Valuta creazione campagna EXACT"
 DISCOVERY_TYPES = frozenset({"PHRASE", "BROAD", "AUTO", "OTHER"})
 _CONF = ["LOW", "MEDIUM", "HIGH"]
@@ -58,6 +60,7 @@ DEFAULTS = {
     "negative_zero_spend_mult": None,        # None = zero_orders.negative_spend_mult (2.0) x royalty
     "negative_acos_min_orders": 2,
     "negative_acos_min_clicks": 15,
+    "promote_min_clicks": 3,                 # nessuna promozione EXACT con meno clic (qualunque numero di acquisti)
     "watch_min_clicks": 3,                   # 0 ordini sotto questa soglia = NO_ACTION; negative mai con 2-3 clic
     "new_exact_campaign_min_terms": 3,
 }
@@ -136,9 +139,10 @@ def _eval_window(rows, ctx, cfg):
     r0 = rows[0]
     R, rules, b = ctx.royalty, ctx.rules, ctx.bands
     cls, conf = "NONE", "LOW"
-    if m.orders >= cfg["promote_high_min_orders"] and m.acos is not None and m.acos <= ctx.target_acos:
+    enough = m.clicks >= cfg["promote_min_clicks"]
+    if enough and m.orders >= cfg["promote_high_min_orders"] and m.acos is not None and m.acos <= ctx.target_acos:
         cls, conf = "PROMO_HIGH", "HIGH"
-    elif m.orders >= cfg["promote_medium_min_orders"] and m.acos is not None and m.acos <= ctx.break_even_acos:
+    elif enough and m.orders >= cfg["promote_medium_min_orders"] and m.acos is not None and m.acos <= ctx.break_even_acos:
         cls, conf = "PROMO_MEDIUM", "MEDIUM"
     elif (m.orders == 0 and m.clicks >= cfg["negative_zero_min_clicks"] and m.spend >= cfg["negative_zero_spend_mult"] * R):
         cls, conf = "NEG_ZERO", calculate_confidence(m.orders, m.clicks, m.spend, R, rules)
@@ -192,6 +196,7 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
     status_of(raw_json) -> 'ENABLED'/'PAUSED'/'UNKNOWN' (opzionale, per segnalare keyword EXACT in pausa).
     Ritorna {'records': [...], 'excluded': {...}, 'new_exact_campaign': {...}|None, 'config': {...}}."""
     cfg = _cfg(ctx)
+    st_rows, bad_st = split_search_terms(list(st_rows))         # metriche impossibili (0 clic con spesa/acquisti): mai usate per opportunita'
     ctype = {c["campaign_id"]: str(c.get("campaign_type") or "").upper() for c in campaigns}
     for r in list(st_rows) + list(target_rows):
         ctype.setdefault(r["campaign_id"], str(r.get("campaign_type") or "").upper())
@@ -271,8 +276,13 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
                and x["campaign_id"] == cid]
         rec["target_status"] = ("ENABLED" if "ENABLED" in sts else "PAUSED" if sts and all(s == "PAUSED" for s in sts) else "UNKNOWN")
         rec["reason"] = "target prodotto (ASIN) con buon rendimento: non e' una keyword, nessuna promozione in EXACT."
+        rec["asin_targeted"] = any(product_asin(x["target"]) == term for x in target_rows)       # esiste gia' un product target per questo ASIN?
         records.append(rec)
 
+    phrase_campaigns = sorted(c["campaign_id"] for c in campaigns if str(c.get("campaign_type") or "").upper() == "PHRASE")
+    for rec in records:
+        if rec["opportunity_type"] == SUGGEST_PHRASE:
+            rec["suggested_campaigns"] = phrase_campaigns
     seen_in = defaultdict(set)
     for r in records:
         seen_in[r["search_term"]].add(r["campaign_id"])
@@ -281,13 +291,16 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
         r["also_seen_in"] = others
         if others:
             r["flags"].append("DUPLICATE_ACROSS_CAMPAIGNS")
-    return {"records": records, "excluded": dict(excluded), "config": cfg,
+    if bad_st:
+        excluded["righe_impossibili"] = len(bad_st)
+    return {"records": records, "excluded": dict(excluded), "config": cfg, "data_warnings": impossible_warnings(bad_st),
             "new_exact_campaign": new_exact_campaign_suggestion(records, campaigns, ctype, cfg)}
 
 
 def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any_kw, added_as=(), ad_groups=()):
     flags, notes = [], []
     promoted_in = []
+    negative_type = None
     negative = negative_state(added_as)                         # negativa gia' impostata, valutata solo in QUESTA campagna
     primary = T or C
     in_exact = exact_kw.get(kw_norm(term), [])
@@ -326,9 +339,12 @@ def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any
             if not has_tactical_window:
                 conf, agree = _down(C["confidence"]), "SOLO_65D"
                 why.append("finestra 30D non importata: valutato solo sul 65D, confidence ridotta")
-            elif T is None or _dir(T) == "NONE":
+            elif T is None:                                         # nessuna attivita' nel 30D: manca la conferma ma non c'e' neppure una smentita
+                conf, agree = _down(C["confidence"]), "ASSENTE_30D"
+                why.append("ordini nel 65D, nessuna attivita' negli ultimi 30 giorni (nessuna smentita): promozione con affidabilita' ridotta di un livello")
+            elif _dir(T) == "NONE":
                 conf, agree = "LOW", "NON_CONFERMATO_30D"
-                why.append("ordini nel 65D ma nessuna conferma nel 30D (termine assente o senza attivita' recente)")
+                why.append("ordini nel 65D ma nessuna conferma nel 30D (termine senza attivita' utile recente)")
             elif _dir(T) == "POS":
                 conf, agree = _down(C["confidence"]), "CONCORDI"
                 why.append("65D forte; il 30D e' nella stessa direzione ma con pochi dati")
@@ -346,7 +362,7 @@ def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any
             if elsewhere:
                 why.append("gia' target altrove (" + ", ".join(sorted({e[0] for e in elsewhere})) + "): la promozione resta possibile")
     elif neg(T) or neg(C):
-        if term_is_parent:
+        if term_is_parent and ctype_ not in ("PHRASE", "BROAD"):
             otype, why = WATCH, ["il termine coincide con il target padre: nessuna negative sul nome del target"]
         else:
             if neg(T):
@@ -372,7 +388,12 @@ def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any
                 why.append("confidence finale insufficiente per una negative")
             else:
                 otype = NEGATIVE
-                why.append("tipo di negative (exact/phrase) non deciso")
+                if term_is_parent:                          # stessa query del target FRASE/BROAD: solo negativa ESATTA, il target resta attivo
+                    negative_type = "EXACT"
+                    flags.append("NEGATIVE_EXACT_ONLY")
+                    why.append("la query coincide col target: solo una negativa ESATTA (il target resta attivo e continua a scoprire altre query)")
+                else:
+                    why.append("tipo di negative (exact/phrase) non deciso")
     elif any(x is not None and x["cls"] in ("WATCH_GOOD", "WATCH_BAD") for x in (T, C)):
         otype = WATCH
         base = next(x for x in (T, C) if x is not None and x["cls"] in ("WATCH_GOOD", "WATCH_BAD"))
@@ -383,6 +404,17 @@ def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any
         why.append("nessun segnale (pochi clic, nessun ordine)")
     if term_is_parent:
         flags.append("TERM_EQUALS_PARENT_TARGET")
+    is_auto_origin = target_type(parent, ctype_) == "AUTO_TARGETING_GROUP"
+    if otype == PROMOTE and is_auto_origin:
+        flags.append("AUTO_STRONG_WINNER")                      # AUTO con segnale forte (soglie PROMOTE): puo' ancora saltare direttamente in EXACT
+    elif (otype == WATCH and is_auto_origin and not negative and not any_kw.get(kw_norm(term)) and agree != "DISCORDI"
+          and base["orders"] >= 1 and base["clicks"] >= cfg["promote_min_clicks"] and base["acos"] is not None and base["acos"] <= ctx.target_acos
+          and base["cls"] in ("WATCH_GOOD", "PROMO_HIGH", "PROMO_MEDIUM")):
+        # AUTO MODERATE WINNER: keyword testuale, >= promote_min_clicks clic, >= 1 acquisto, ACOS <= obiettivo, non ancora un target (PHRASE/EXACT) e dati validi,
+        # ma non abbastanza forte per l'EXACT diretto => prima in FRASE (AUTO scopre, FRASE valida, EXACT concentra)
+        otype = SUGGEST_PHRASE
+        flags.append("AUTO_MODERATE_WINNER")
+        why.append("vincitore AUTO moderato (campione ancora piccolo): da validare prima in una campagna FRASE")
     if negative:
         kind = "esatta" if negative == "EXACT" else "a frase"
         flags.append("NEGATIVE_EXACT" if negative == "EXACT" else "NEGATIVE_PHRASE")
@@ -415,7 +447,7 @@ def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any
         "already_in_exact": already_exact, "already_targeted_elsewhere": bool(elsewhere),
         "targeted_in": sorted({e[0] for e in elsewhere}), "also_seen_in": [],
         "added_as_raw": list(added_as), "added_as_normalized": [k for k, v in _merge_added(added_as).items() if v],
-        "negative_match": negative, "ad_groups": list(ad_groups), "promoted_in": promoted_in if negative else [],
+        "negative_match": negative, "negative_type": negative_type if otype == NEGATIVE else None, "ad_groups": list(ad_groups), "promoted_in": promoted_in if negative else [],
         "promoted_exact_paused": ("PROMOTED_EXACT_PAUSED" in flags),
         "operationally_actionable": False, "manual_review_required": True,
     }

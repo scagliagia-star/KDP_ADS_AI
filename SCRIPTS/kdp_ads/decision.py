@@ -28,6 +28,7 @@ from datetime import datetime
 from . import amazon as amz
 from . import registry
 from .analysis import _load
+from .dataquality import impossible_warnings, split_search_terms
 from .crosscampaign import analyze_overlaps_by_period
 from .metrics import Metrics, compute_metrics, normalize_term, product_asin, product_kind, set_currency, sym, target_type, term_matches_target
 from .rules import CONF_ORDER, ctx_from_book, load_rules, priority
@@ -64,6 +65,32 @@ def _mild_deterioration(L, P, bid, ctx, cfg) -> bool:
                 and L.m.acos <= ctx.target_acos * (1 + cfg["mild_max_gap_pct"] / 100.0)
                 and bid <= cfg["mild_low_bid_royalty_frac"] * ctx.royalty
                 and P.m.spend < cfg["mild_recent_spend_mult"] * ctx.royalty)
+
+
+def _strong_cut(L, P, ctx, cfg) -> int:
+    """Taglio piu' forte (10% o 15%) quando il problema e' FORTE e CONFERMATO, altrimenti 0. Condizioni (soglie in rules.json -> decision):
+      storico e recente (evidenza primaria) ENTRAMBI sopra il pareggio, recente >= strong_cut_min_recent_acos_mult x ACOS obiettivo,
+      recente con >= strong_cut_min_recent_clicks clic, storico con >= strong_cut_min_hist_orders acquisti  => 10%;
+      recente >= strong_cut_15_recent_acos_mult x obiettivo con >= strong_cut_15_min_recent_clicks clic       => 15%.
+    Con campioni piccoli (poche decine di clic o pochi acquisti storici) non scatta mai: resta il passo prudente."""
+    if L is None or P is None or L.m.acos is None or P.m.acos is None:
+        return 0
+    if not (L.m.acos > ctx.break_even_acos and P.m.acos > ctx.break_even_acos):
+        return 0
+    if not (P.m.acos >= cfg["strong_cut_min_recent_acos_mult"] * ctx.target_acos and P.m.clicks >= cfg["strong_cut_min_recent_clicks"]
+            and L.m.orders >= cfg["strong_cut_min_hist_orders"]):
+        return 0
+    if P.m.acos >= cfg["strong_cut_15_recent_acos_mult"] * ctx.target_acos and P.m.clicks >= cfg["strong_cut_15_min_recent_clicks"]:
+        return 15
+    return 10
+
+
+def _no_recent_traffic(Tv, tpid, bid, status, ctx, cfg) -> bool:
+    """Target ATTIVO, storicamente da ridurre, ma nel periodo tattico senza clic ne' spesa e con offerta gia' bassa
+    (<= mild_low_bid_royalty_frac x royalty, la stessa soglia di C4B): ridurre l'offerta non serve, il target non sta spendendo."""
+    if not cfg.get("no_traffic_monitor_enabled", True) or tpid is None or status != "ENABLED" or bid is None:
+        return False
+    return bool((Tv is None or (Tv.m.clicks == 0 and Tv.m.spend == 0)) and bid <= cfg["mild_low_bid_royalty_frac"] * ctx.royalty)
 
 
 def map_target_status(raw_json) -> str:
@@ -135,6 +162,14 @@ def make_ev(rec: dict, ctx, cfg: dict, term_equals_target: bool) -> Ev:
         action, conf, lowsample = ACTION_OF[step], "LOW", True
         note = (f"campione piccolo ({m.orders:g} ordini) ma perdita stimata {sym()}{m.est_loss:.2f} >= "
                 f"{cfg['low_sample_loss_mult']:g}x royalty: bid-down con confidence LOW")
+    # DIFESA IN PROFONDITA' del gate zero-order: le raccomandazioni analitiche salvate possono venire da un motore con regole piu' vecchie (processo
+    # Streamlit con moduli gia' caricati). Un bid-down ZERO-ORDER sotto i gate (clic o spesa/royalty) diventa WATCH anche qui, qualunque sia l'origine.
+    z = ctx.rules.get("zero_orders") or {}
+    if (action in ACTION_OF.values() and action != "PAUSE_CANDIDATE" and rec["rule_classification"] == "ZERO_ORDER_WASTE" and m.orders == 0 and z
+            and (m.clicks < z.get("bid_down_min_clicks", 0) or m.spend < z.get("bid_down_min_spend_mult", 0) * R)):
+        action, conf = "WATCH", conf
+        note = (f"zero-order sotto i gate di riduzione ({m.clicks:g} clic < {z.get('bid_down_min_clicks')} o spesa {sym()}{m.spend:.2f} < "
+                f"{z.get('bid_down_min_spend_mult')}x royalty): monitorare")
     return Ev(rec, action, STEP_OF.get(action, 0), conf, m, growth, lowsample, note)
 
 
@@ -269,6 +304,8 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
 
     # dati per bid corrente e overlap (deterministici, stessa funzione del motore analitico)
     trows, srows = _load(conn, "target_rows", book_id, mp), _load(conn, "search_term_rows", book_id, mp)
+    srows, bad_st = split_search_terms(srows)                           # metriche impossibili: escluse (cross-campaign/CVR), avviso dati
+    ds.warnings += impossible_warnings(bad_st)
     for r in srows:
         r["target_type"] = target_type(r["target"], r.get("campaign_type"))
     bid_of = {}
@@ -483,6 +520,19 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
         rule = "C1_DOWN_CONFIRMED"
         logic = (f"Lifetime ({L.action}) e recente ({P.action}) concordano su un bid-down: si applica UNA volta il passo maggiore "
                  f"(non si sommano).")
+    elif (life_step > 0 and p_step == 0 and Tv is not None and Tv.action == "WATCH" and Tv.m.orders == 0 and Tv.m.clicks > 0
+          and ((Rc is not None and Rc.m.acos is not None and Rc.m.acos <= ctx.target_acos and Rc.m.orders >= cfg["recent_good_min_orders"])
+               or (life_step <= 5 and L.m.orders > 0))):
+        # Recente zero-order ancora SOTTO i gate di riduzione (clic o spesa/royalty): niente scorciatoia verso il bid-down dal solo storico.
+        #  - se un periodo recente VALIDO e' profittevole (ACOS <= obiettivo), oppure
+        #  - se l'eccesso storico e' solo lieve (passo -5%, storico con acquisti): non e' un'evidenza forte e indipendente.
+        # Un lifetime zero-order (0 acquisti) o con eccesso forte (passo >= 10%) resta una evidenza propria e mantiene il bid-down.
+        good = Rc is not None and Rc.m.acos is not None and Rc.m.acos <= ctx.target_acos and Rc.m.orders >= cfg["recent_good_min_orders"]
+        conf, rule, resolved = cap((Rc if good else Tv).conf, "MEDIUM"), "C2D_ZERO_ORDER_UNDER_GATE_WATCH", "WATCH"
+        flags.append("RECENT_GOOD_ZERO_ORDER_WATCH" if good else "LIFETIME_MILD_ZERO_ORDER_WATCH")
+        logic = (f"Storico {L.action} (ACOS {'n/d' if L.m.acos is None else format(L.m.acos, '.1f') + '%'}), "
+                 + (f"periodo recente profittevole (ACOS {Rc.m.acos:.1f}% con {Rc.m.orders:g} acquisti) e " if good else "eccesso storico lieve e ")
+                 + f"ultimo periodo senza acquisti ({Tv.m.clicks:g} clic, {Tv.m.spend:.2f}) ancora sotto i gate zero-order: nessun bid-down, monitorare.")
     elif life_step > 0:
         step, conf, rule = life_step, L.conf, "C2_LIFETIME_DOWN"
         logic = "Bid-down guidato dal lifetime; il recente non lo contraddice o non ha dati sufficienti."
@@ -511,11 +561,34 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
             logic = (f"DETERIORAMENTO RECENTE: lifetime {L.action} (ACOS "
                      f"{'N/A' if L.m.acos is None else format(L.m.acos, '.1f') + '%'}) ma il periodo recente segnala {P.action}; "
                      f"le evidenze discordano quindi il passo e' limitato a -{step}% e la confidence a {conf}.")
+    elif (Tv is not None and Tv.action == "WATCH" and Tv.m.orders == 0 and L is not None and L.action in ("HOLD", "WATCH")
+          and _mild_deterioration(L, Tv, (bid_of.get((e.campaign_id, ident)) or {}).get("bid"), ctx, cfg)):
+        # stesso caso di C4B, ma il recente (0 acquisti, spesa ancora sotto la soglia zero-order) e' gia' WATCH e non un bid-down
+        conf, rule, resolved = cap(Tv.conf, "MEDIUM"), "C4B_MILD_DETERIORATION_MONITOR", "WATCH"
+        flags.append("MILD_DETERIORATION_MONITOR")
+        logic = (f"Storico ancora profittevole (ACOS {L.m.acos:.1f}%, sopra l'obiettivo ma sotto il pareggio), recente senza acquisti con poca spesa "
+                 f"({Tv.m.spend:.2f} < {cfg['mild_recent_spend_mult']:g}x royalty) e offerta gia' bassa: nessun bid-down meccanico, monitorare prima di ridurre.")
     elif supports:
         step, rule = 5, "C5_CROSS_ONLY"
         conf = "MEDIUM"
         logic = "Nessun bid-down da lifetime/recente; il cross-campaign indica questa campagna materialmente peggiore sullo stesso termine: -5%."
 
+    strong_cut = False
+    if e.kind != "neg" and step > 0:
+        _bid = (bid_of.get((e.campaign_id, ident)) or {}).get("bid")
+        _tst = (status_of or {}).get((e.campaign_id, ident), "UNKNOWN")
+        if rule in ("C1_DOWN_CONFIRMED", "C2_LIFETIME_DOWN", "C2B_LIFETIME_DOWN_RECOVERING") and _no_recent_traffic(Tv, tpid, _bid, _tst, ctx, cfg):
+            conf, rule, resolved, step = cap(conf, "MEDIUM"), "C2C_NO_RECENT_TRAFFIC", "WATCH", 0
+            flags.append("NO_RECENT_TRAFFIC")
+            logic = (f"Storicamente da ridurre, ma negli ultimi periodi il target non ha traffico ne' spesa e l'offerta e' gia' bassa ({bid_txt({'bid': _bid})}): "
+                     "nessun bid-down utile, verificare l'erogazione.")
+        else:
+            cut = _strong_cut(L, P, ctx, cfg) if rule in ("C1_DOWN_CONFIRMED", "C2_LIFETIME_DOWN") else 0
+            if cut > step:
+                logic += (f" Problema forte e confermato (storico ACOS {L.m.acos:.1f}% e recente {P.m.acos:.1f}% sopra il pareggio, recente >= "
+                          f"{cfg['strong_cut_min_recent_acos_mult']:g}x obiettivo, {P.m.clicks:g} clic recenti): riduzione {cut}% invece di {step}%.")
+                step, strong_cut = cut, True
+                flags.append("STRONG_CONFIRMED_CUT")
     review_underlying = None
     if e.kind != "neg":
         if step > 0:
@@ -544,7 +617,8 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
                 if inherited and eff_sig in dcfg["review_on"]:
                     # COLLASSO ereditato dalla campagna: non e' prova sul singolo target, niente REVIEW; trattato come 'in calo' (solo cap del passo)
                     flags.append("DELIVERY_INHERITED_COLLAPSED_NOT_ENFORCED")
-                if (eff_sig == "DELIVERY_DECLINING" or (inherited and eff_sig in dcfg["review_on"])) and step > dcfg["declining_cap_step"]:
+                if ((eff_sig == "DELIVERY_DECLINING" or (inherited and eff_sig in dcfg["review_on"])) and step > dcfg["declining_cap_step"]
+                        and not strong_cut):
                     logic += (f" Delivery in calo ({eff_detail}): passo limitato da -{step}% a -{dcfg['declining_cap_step']}%.")
                     step = dcfg["declining_cap_step"]
                     flags.append("DELIVERY_DECLINING_CAP")
@@ -561,6 +635,14 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
             final_action, conf = base.action, base.conf
             src = "tattica" if base is Tv else "recente" if base is Rc else "lifetime"
             logic = f"Nessuna evidenza di bid-down: azione dall'evidenza {src} ({base.action})."
+            if (cfg.get("recent_zero_orders_watch_enabled", True) and Tv is not None and Tv.action == "WATCH" and Tv.m.orders == 0 and Tv.m.clicks > 0
+                    and L is not None and L.action == "HOLD" and base is not Tv):
+                # storico in HOLD ma nel periodo tattico clic e spesa SENZA acquisti (ancora sotto le soglie zero-order di bid-down): monitorare,
+                # non 'tutto a posto'. Nessuna riduzione dell'offerta: il campione recente e' ancora piccolo.
+                base, final_action, conf, rule = Tv, "WATCH", cap(Tv.conf, "MEDIUM"), "C0W_RECENT_ZERO_ORDERS_WATCH"
+                flags.append("RECENT_ZERO_ORDERS_WATCH")
+                logic = (f"Storico in HOLD (ACOS {'n/d' if L.m.acos is None else format(L.m.acos, '.1f') + '%'}), ma nel periodo recente {Tv.m.clicks:g} clic e "
+                         f"{Tv.m.spend:.2f} di spesa senza acquisti, ancora sotto le soglie per ridurre l'offerta: monitorare.")
     # ---- stato del target: un target in pausa non puo' avere un'azione di bid operativa (l'analisi economica resta)
     tstatus = (status_of or {}).get((e.campaign_id, ident), "UNKNOWN")
     underlying = None

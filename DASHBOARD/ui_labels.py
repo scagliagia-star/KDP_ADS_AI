@@ -21,6 +21,7 @@ NAV_PAGES = [
     ("pages/5_Erogazione.py", "Erogazione"),
     ("pages/6_Confronto_tra_campagne.py", "Confronto tra campagne"),
     ("pages/9_Opportunita_Search_Term.py", "Opportunità Search Term"),
+    ("pages/11_Suggerimenti_di_crescita.py", "Suggerimenti di crescita"),
     ("pages/10_Lancio_nuovo_libro.py", "Lancio nuovo libro"),
     ("pages/7_Gestione_libri.py", "Gestione libri"),
     ("pages/8_Importa_report.py", "Importa report"),
@@ -39,6 +40,22 @@ OV_EXACT = "KEYWORD DA METTERE IN EXACT"
 OV_EXACT_NEW = "CREA CAMPAGNA EXACT CON QUESTE KEYWORD"
 OV_NEGATIVE = "KEYWORD DA VALUTARE COME NEGATIVE"
 OV_CONFLICTS = "CONFLITTI DA VERIFICARE"
+GROW_LOOK_ALSO = "GUARDA ANCHE"
+GROW_NONE = "Al momento non ci sono suggerimenti di crescita affidabili."
+GROW_SEE = "Vedi suggerimenti"
+GROW_PAGE_TITLE = "Suggerimenti di crescita"
+GROW_INTRO = ("Opportunità di crescita ricavate solo dai dati locali (termini di ricerca, target, campagne, ASIN osservati). Sono separate dalle azioni difensive "
+              "(non contano in «Da valutare ora») e restano suggerimenti manuali: la dashboard non modifica nulla su Amazon Ads.")
+GROW_SCALE = "1 · SCALA TARGET VINCENTI"
+GROW_AUTO_PHRASE = "2 · AUTO → FRASE"
+GROW_TO_EXACT = "3 · FRASE → EXACT"
+GROW_DEVELOP = "4 · SVILUPPA CAMPAGNE"
+GROW_NEW_PRODUCT = "5 · NUOVI TARGET PRODOTTO"
+GROW_EMPTY = {"SCALE": "Nessun target candidato allo scaling con i gate prudenti attuali.",
+              "AUTO_TO_PHRASE": "Nessun termine AUTO promettente da validare in FRASE.",
+              "TO_EXACT": "Nessuna keyword da mettere in EXACT.",
+              "DEVELOP": "Nessuna campagna con copertura insufficiente.",
+              "NEW_PRODUCT": "Nessun nuovo target prodotto supportato dai dati."}
 OV_PROMOTED = "KEYWORD GIÀ PROMOSSE IN EXACT"
 OV_PRODUCTS = "TARGET PRODOTTO VINCENTE"
 OV_DELIVERY = "EROGAZIONE DA VERIFICARE"
@@ -127,6 +144,7 @@ OPP_LABELS = {
     "REVIEW_NEGATIVE_CONFLICT": "Conflitto da verificare",
     "PROMOTED_TO_EXACT": "Promossa in EXACT",
     "WINNING_PRODUCT_TARGET": "Target prodotto vincente",
+    "SUGGEST_IN_PHRASE": "Aggiungi in FRASE",
 }
 # ------------------------------------------------------------------ Lancio nuovo libro (bozza locale, nessuna rete)
 LAUNCH_PAGE_TITLE = "Lancio nuovo libro"
@@ -209,17 +227,20 @@ OPP_SECTION_WATCH = "C · DA MONITORARE"
 OPP_SECTION_CONFLICT = "D · CONFLITTI DA VERIFICARE"
 OPP_SECTION_PROMOTED = "E · GIÀ PROMOSSE IN EXACT"
 OPP_SECTION_PRODUCT = "F · TARGET PRODOTTO VINCENTE"
+OPP_SECTION_PHRASE = "G · DA AGGIUNGERE IN FRASE"
 OPP_KPI_EXACT = "OPPORTUNITÀ EXACT"
 OPP_KPI_NEGATIVE = "CANDIDATI NEGATIVI"
 OPP_NEW_CAMPAIGN = "Valuta creazione campagna EXACT"
 OPP_NEW_CAMPAIGN_TEXT = ("Ci sono almeno {n} termini di ricerca unici da promuovere in EXACT provenienti da PHRASE/Auto e in questo marketplace non esiste "
                          "una campagna EXACT. Suggerimento strutturale, non operativo: nessuna campagna viene creata.")
 OPP_AGREEMENT_LABELS = {"CONCORDI": "Finestre concordi", "DISCORDI": "Finestre discordanti", "SOLO_UNA_FINESTRA": "Una sola finestra",
-                        "SOLO_65D": "Solo 65 giorni (30 giorni non importato)", "NON_CONFERMATO_30D": "Non confermato negli ultimi 30 giorni"}
-OPP_FLAG_LABELS = {"ALREADY_IN_EXACT": "Già in EXACT", "EXACT_PAUSED": "Keyword EXACT in pausa", "DUPLICATE_ACROSS_CAMPAIGNS": "Presente in più campagne",
+                        "SOLO_65D": "Solo 65 giorni (30 giorni non importato)", "NON_CONFERMATO_30D": "Non confermato negli ultimi 30 giorni",
+                        "ASSENTE_30D": "Nessuna attività negli ultimi 30 giorni"}
+OPP_FLAG_LABELS = {"AUTO_STRONG_WINNER": "Vincitore AUTO forte", "AUTO_MODERATE_WINNER": "Vincitore AUTO moderato",
+                   "ALREADY_IN_EXACT": "Già in EXACT", "EXACT_PAUSED": "Keyword EXACT in pausa", "DUPLICATE_ACROSS_CAMPAIGNS": "Presente in più campagne",
                    "MULTI_PARENT_TARGET": "Catturato da più target", "TERM_EQUALS_PARENT_TARGET": "Coincide con il target padre",
                    "NEGATIVE_EXACT": "Già negativa esatta", "NEGATIVE_PHRASE": "Già negativa a frase", "ALREADY_NEGATIVE": "Già negativa",
-                   "NEGATIVE_CONFLICT": "Conflitto con negativa", "PROMOTED_TO_EXACT": "Promossa in EXACT",
+                   "NEGATIVE_CONFLICT": "Conflitto con negativa", "NEGATIVE_EXACT_ONLY": "Solo negativa esatta (stessa query del target)", "PROMOTED_TO_EXACT": "Promossa in EXACT",
                    "PROMOTED_EXACT_PAUSED": "Promossa in EXACT (target in pausa)", "PRODUCT_TARGET": "Target prodotto"}
 OPP_NEGATIVE_TYPE_NOTE = "Il tipo di negativa (exact o phrase) non è deciso."
 FLAG_LABELS = {
@@ -232,6 +253,11 @@ FLAG_LABELS = {
     "REVIEW_DELIVERY": "Verifica erogazione",
     "RECENT_DETERIORATION": "Peggioramento recente",
     "MILD_DETERIORATION_MONITOR": "Peggioramento lieve: da monitorare",
+    "NO_RECENT_TRAFFIC": "Nessun traffico recente: verifica l'erogazione",
+    "RECENT_ZERO_ORDERS_WATCH": "Recente senza acquisti: da monitorare",
+    "LIFETIME_MILD_ZERO_ORDER_WATCH": "Eccesso storico lieve, recente senza acquisti: da monitorare",
+    "RECENT_GOOD_ZERO_ORDER_WATCH": "Recente profittevole, ultimo periodo senza acquisti: da monitorare",
+    "STRONG_CONFIRMED_CUT": "Problema forte e confermato: riduzione più decisa",
     "LOW_SAMPLE": "Campione ridotto",
     "LOW_SAMPLE_LOSS": "Perdita su campione ridotto",
     "LOSS_UNDER_LOW_SAMPLE": "Perdita con campione ridotto",
@@ -462,6 +488,9 @@ def label_reason(text):
     return _FLAGS_RE.sub(lambda m: "Segnalazioni: " + ", ".join(label_flag(f) for f in m.group(1).split(", ")) + ".", s)
 
 
+ACOS_COLUMNS = ("lifetime_acos", "recent_acos", "tactical_acos")           # valori gia' in punti percentuali (35.7 = 35,7%)
+
+
 def display_value(column, v):
     """Valore di una colonna decisione per le tabelle: codici tecnici -> etichette italiane; NULL -> n/d."""
     if v is None:
@@ -471,6 +500,11 @@ def display_value(column, v):
     if column == "bid_change_pct":
         try:
             return f"{float(v):+.0f}%"                                       # testo, mai numeri misti a "n/d" nella stessa colonna
+        except (TypeError, ValueError):
+            return str(v)
+    if column in ACOS_COLUMNS:
+        try:
+            return f"{float(v):.1f}%"                                        # testo "35.7%": mai numeri misti a "n/d" nella stessa colonna
         except (TypeError, ValueError):
             return str(v)
     if column == "target":
@@ -496,3 +530,4 @@ def display_value(column, v):
     if column == "recommendation_agreement":
         return label_agreement(v)
     return v
+

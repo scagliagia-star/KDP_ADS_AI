@@ -5,7 +5,9 @@
     "watch_clicks_max": 9,
     "sample_clicks_min": 10,
     "high_cpc_spend_mult": 1.0,
-    "bid_down_10_spend_mult": 1.0,
+    "bid_down_min_spend_mult": 1.25,
+    "bid_down_min_clicks": 20,
+    "bid_down_10_spend_mult": 1.5,
     "pause_spend_mult": 2.0,
     "negative_spend_mult": 2.0
   },
@@ -72,6 +74,14 @@
     "low_sample_max_step": 10,
     "recent_deterioration_cap_step": 5,
     "recent_deterioration_step10_needs_conf": "HIGH",
+    "strong_cut_min_recent_acos_mult": 1.5,
+    "strong_cut_min_recent_clicks": 20,
+    "strong_cut_min_hist_orders": 3,
+    "strong_cut_15_recent_acos_mult": 2.0,
+    "strong_cut_15_min_recent_clicks": 50,
+    "no_traffic_monitor_enabled": true,
+    "recent_zero_orders_watch_enabled": true,
+    "recent_good_min_orders": 2,
     "mild_monitor_enabled": true,
     "mild_max_gap_pct": 15,
     "mild_low_bid_royalty_frac": 0.05,
@@ -80,6 +90,20 @@
     "growth_min_orders": 3,
     "amazon_weak_spend_mult": 2.0,
     "tactical_good_min_confidence": "MEDIUM"
+  },
+  "growth": {
+    "_note": "Suggerimenti di crescita (separati dalle decisioni difensive). ALZA OFFERTA solo +5%: target ATTIVO in HOLD con >= scale_min_hist_orders acquisti storici, ACOS storico <= scale_hist_acos_max_pct_of_target x ACOS obiettivo, periodo recente valido con ACOS <= obiettivo e >= scale_min_recent_orders acquisti, nessun deterioramento ne' zero-order recente. Le impressioni non contano mai. SVILUPPA CAMPAGNA: campagna non AUTO senza ordini con meno di develop_max_clicks clic e spesa < develop_max_spend_mult x royalty.",
+    "scale_enabled": true,
+    "scale_step_pct": 5,
+    "scale_min_hist_orders": 5,
+    "scale_hist_acos_max_pct_of_target": 0.75,
+    "scale_min_recent_orders": 2,
+    "develop_max_clicks": 30,
+    "develop_max_spend_mult": 2.0
+  },
+  "opportunities": {
+    "_note": "Opportunita' Search Term. promote_min_clicks: nessun termine diventa METTI IN EXACT con meno clic di questa soglia, qualunque sia il numero di acquisti (campione troppo piccolo: 1 clic con 2 acquisti resta da monitorare).",
+    "promote_min_clicks": 3
   },
   "snapshots": {
     "_note": "Ruolo delle finestre temporali. TACTICAL <= tactical_max_days; RECENT_CONTEXT <= recent_context_max_days; oltre = contesto storico. Le finestre sovrapposte non vengono mai sommate.",

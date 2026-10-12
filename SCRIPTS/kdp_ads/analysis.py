@@ -6,6 +6,7 @@ from datetime import datetime
 from . import registry
 from .audit import audit_book, duplicate_key_warnings
 from .crosscampaign import analyze_overlaps_by_period, build_signals
+from .dataquality import impossible_warnings, split_search_terms
 from .metrics import ESTIMATE_NOTE, compute_metrics, normalize_term, target_type, term_matches_target
 from .rules import CONF_ORDER, BookCtx, ctx_from_book, decide, load_rules, priority
 from .snapshots import SAME_CONTENT_DIFFERENT_PERIOD, SAME_CONTENT_MESSAGE, days_inclusive, period_id as make_period_id, per_day, window_label, window_role
@@ -61,6 +62,8 @@ def analyze_book(conn, settings: dict, mapping: dict, rules_path, book_id: str, 
 
     mp = ctx.marketplace
     trows, srows = _load(conn, "target_rows", book_id, mp), _load(conn, "search_term_rows", book_id, mp)
+    srows, bad_st = split_search_terms(srows)                           # righe Search Term con 0 clic ma spesa/acquisti: escluse dal calcolo, avviso dati
+    an.warnings += impossible_warnings(bad_st)
     snap_cfg = ctx.rules["snapshots"]
     comparable = defaultdict(set)      # campagna -> {(date_from, date_to)} presenti sia come Target che come Search Term
     tp = {(r["campaign_id"], r["date_from"], r["date_to"]) for r in trows if r["report_scope"] == "DATE_RANGE"}

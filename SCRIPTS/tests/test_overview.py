@@ -98,12 +98,15 @@ class BuilderTests(unittest.TestCase):
         self.assertEqual(ov["good"][0]["reason"], "Sta funzionando bene.")
 
     def test_hold_with_recent_deterioration_is_monitored(self):
-        weak = dec(1, final_action="HOLD", lifetime_orders=103.0, lifetime_spend=586.0, lifetime_acos=28.5, recent_vs_historical_signal="DECLINING_SIGNAL")
+        weak = dec(1, final_action="HOLD", lifetime_orders=103.0, lifetime_spend=586.0, lifetime_acos=28.5, recent_vs_historical_signal="DECLINING_SIGNAL",
+                   tactical_clicks=20.0, tactical_orders=3.0, tactical_acos=60.0)
         limited = dec(2, final_action="HOLD", lifetime_orders=5.0, lifetime_spend=28.0, lifetime_acos=27.8, tactical_acos=75.1, tactical_clicks=23.0, tactical_orders=1.0)
         ov = build([weak, limited])
-        self.assertEqual([c["id"] for c in ov["monitor"]], ["D-0001", "D-0002"])
-        self.assertEqual(ov["monitor"][0]["reason"], "Storicamente forte, ma il rendimento recente è peggiorato.")
-        self.assertEqual(ov["monitor"][1]["reason"], "Recente debole, ma campione ancora limitato.")
+        self.assertEqual([c["id"] for c in ov["monitor"]], ["D-0001", "D-0002"])                 # storico buono + recente valido SOPRA l'obiettivo
+        self.assertEqual(ov["monitor"][0]["reason"], "Storicamente in linea con l'obiettivo (ACOS 28,5%), ma negli ultimi 30 giorni l'ACOS è 60,0%, "
+                                                     "sopra l'obiettivo 35,0%: tienilo d'occhio.")
+        self.assertEqual(ov["monitor"][1]["reason"], "Storicamente in linea con l'obiettivo (ACOS 27,8%), ma negli ultimi 30 giorni l'ACOS è 75,1%, "
+                                                     "sopra l'obiettivo 35,0%: tienilo d'occhio.")
         self.assertFalse(ov["good"])
 
     def test_relevant_paused_target_is_shown_as_already_paused_with_underlying_note(self):
@@ -332,7 +335,7 @@ class RealBookTests(unittest.TestCase):
     def test_page_renders_without_errors_and_kpis_match_the_sections(self):
         self.assertFalse(self.at.exception)
         k = {m.label: m.value for m in self.at.metric if m.label in U.OV_KPI.values()}
-        self.assertEqual(k, {"DA VALUTARE ORA": "1", "OPPORTUNITÀ EXACT": "3", "CANDIDATI NEGATIVI": "0", "TARGET IN PAUSA": "3", "AVVISI": "0",
+        self.assertEqual(k, {"DA VALUTARE ORA": "1", "OPPORTUNITÀ EXACT": "3", "CANDIDATI NEGATIVI": "0", "TARGET IN PAUSA": "3", "AVVISI": "2",
                              "EROGAZIONE DA VERIFICARE": "8", "CONFLITTI DA VERIFICARE": "2"})
         text = self.main_text()
         heads = [h.value for h in self.at.header]
@@ -382,9 +385,9 @@ class RealBookTests(unittest.TestCase):
         self.assertIn("È già in pausa. Nessuna azione necessaria.", text)                               # Complementi: 38,8% < pareggio, non dimostrabile
         self.assertNotIn("Era inefficiente, ma", text)
         self.assertIn("AUTO · Corrispondenza generica", text)
-        self.assertIn("Storicamente forte, ma il rendimento recente è peggiorato.", text)
+        self.assertIn("Storicamente in linea con l'obiettivo (ACOS 28,5%), ma negli ultimi 30 giorni l'ACOS è 42,7%, sopra l'obiettivo 35,0%: tienilo d'occhio.", text)
         self.assertIn("AUTO · Corrispondenza stretta", text)
-        self.assertIn("Recente debole, ma campione ancora limitato.", text)
+        self.assertIn("Storicamente in linea con l'obiettivo (ACOS 27,8%), ma negli ultimi 30 giorni l'ACOS è 75,1%, sopra l'obiettivo 35,0%: tienilo d'occhio.", text)
         self.assertIn("FRASE · national parks book", text)
         self.assertIn("Sta funzionando bene.", text)
 

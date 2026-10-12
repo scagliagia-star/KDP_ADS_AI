@@ -6,9 +6,10 @@ import streamlit as st
 
 import formatting as F
 import ui_labels as U
-from components import cards, overview_ui, sidebar
+from components import cards, growth_ui, overview_ui, sidebar
 from data_access import overview as O
 from data_access.repository import RepoError, parse_delivery_detail
+from kdp_ads import growth as G
 from kdp_ads.metrics import sym
 
 
@@ -38,7 +39,13 @@ def main():
         opp = ctx.repo.search_term_opportunities(ctx.book, ctx.marketplace)
     except RepoError:
         opp = None
-    ov = O.build_overview(ctx.decisions, b, ctx.summary, ctx.warnings, opp, parse_delivery_detail, sym())
+    warnings = list(ctx.warnings)
+    for w in (opp or {}).get("data_warnings", []):             # righe Search Term impossibili rilevate al volo (se il run non le aveva segnalate)
+        body = w.replace("DATA_WARNING ", "", 1)
+        if not any(body[:60] in (x.get("text") or "") for x in warnings):
+            warnings.append({"origin": "opportunità Search Term", "campaign": None, "text": w, "kind": "DATA_WARNING", "severity": "n/d"})
+    ov = O.build_overview(ctx.decisions, b, ctx.summary, warnings, opp, parse_delivery_detail, sym())
+    growth = G.build_growth(ctx.decisions, (opp or {}).get("records", []), b, G.config(ctx.repo.rules()), warnings)
 
     st.divider()
     st.header(U.OV_KPI_TITLE)
@@ -61,6 +68,8 @@ def main():
     overview_ui.monitor_section(st, ov)
     st.divider()
     overview_ui.good_section(st, ov)
+    st.divider()
+    growth_ui.guarda_anche(st, G.summary_lines(growth), growth["total"])
     st.divider()
     overview_ui.warnings_section(st, ov)
     st.divider()

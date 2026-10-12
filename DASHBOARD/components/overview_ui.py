@@ -239,7 +239,15 @@ def delivery_section(st, ov, book=None):
         return
     st.caption("Target attivi senza traffico, con pochissimo traffico o con un forte calo delle impressioni. "
                "Non conviene alzare l'offerta solo perché un target non eroga: prima verifica offerta e pertinenza.")
-    for i in ov["delivery"]:
+    shown = ov.get("delivery_shown", ov["delivery"])
+    if len(shown) < len(ov["delivery"]):
+        st.caption(f"Mostrate le {len(shown)} più rilevanti su {len(ov['delivery'])} (nessuna erogazione prima, poi pochissime impressioni, poi calo). "
+                   "L'elenco completo è nella pagina Erogazione.")
+        try:
+            st.page_link("pages/5_Erogazione.py", label="Vedi tutte le verifiche di erogazione")
+        except Exception:
+            st.caption("Vedi tutte le verifiche nella pagina Erogazione (menu a sinistra).")
+    for i in shown:
         with st.container(border=True):
             st.markdown(f"{F.badge(i['badge'], 'orange')} **{F.esc(i['title'])}**", unsafe_allow_html=True)
             st.markdown(f"Offerta {F.money(i['bid'])} · Impressioni ultimi {i['days']} giorni: **{F.num(i['impressions_30d'])}** · "

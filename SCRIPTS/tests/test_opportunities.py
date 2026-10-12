@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT / "SCRIPTS"))
 sys.path.insert(0, str(HERE))
 
 import test_rules as tr
-from kdp_ads.opportunities import (NEGATIVE, NO_ACTION, PRODUCT_WINNER, PROMOTE, PROMOTED, REVIEW_CONFLICT, SUGGESTION_NEW_EXACT, WATCH, compute_opportunities,
+from kdp_ads.opportunities import (NEGATIVE, NO_ACTION, PRODUCT_WINNER, PROMOTE, PROMOTED, REVIEW_CONFLICT, SUGGESTION_NEW_EXACT, SUGGEST_PHRASE, WATCH, compute_opportunities,
                                    is_asin_term, is_real_query, kw_norm, load_inputs, make_ctx, negative_state, normalize_added_as, rank, unique_terms)
 from kdp_ads.rules import load_rules
 
@@ -92,8 +92,10 @@ class PromoteTests(unittest.TestCase):
         self.assertFalse(r["already_in_exact"])
 
     def test_one_order_is_watch_not_promote(self):
-        r = only(run(both("AUTO", "OTHER", "loose-match", "one order term", 5, 1, 3.0)), "one order term")
-        self.assertEqual(r["opportunity_type"], WATCH)
+        r = only(run(both("FRASE", "PHRASE", "p", "one order term", 5, 1, 3.0)), "one order term")
+        self.assertEqual(r["opportunity_type"], WATCH)                                          # da FRASE: solo monitoraggio
+        a = only(run(both("AUTO", "OTHER", "loose-match", "one order term", 5, 1, 3.0)), "one order term")
+        self.assertEqual(a["opportunity_type"], SUGGEST_PHRASE)                                 # da AUTO: prima in FRASE, mai EXACT diretto
 
     def test_orders_with_acos_above_break_even_are_not_promoted(self):
         r = only(run(both("AUTO", "OTHER", "loose-match", "pricey term", 20, 3, 30.0)), "pricey term")           # ACOS 58.9%
@@ -233,10 +235,15 @@ class NegativeAndWatchTests(unittest.TestCase):
         r = only(run(both("FRASE", "PHRASE", "p", "busy term", 200, 12, 400.0)), "busy term")
         self.assertNotEqual(r["opportunity_type"], NEGATIVE)
 
-    def test_term_equal_to_parent_target_never_negative(self):
-        r = only(run(both("FRASE", "PHRASE", "crochet flowers", "crochet flowers", 30, 0, 30.0)), "crochet flowers")
-        self.assertEqual(r["opportunity_type"], WATCH)
+    def test_term_equal_to_exact_parent_target_is_never_negative(self):
+        r = only(run(both("EXACT", "EXACT", "crochet flowers", "crochet flowers", 30, 0, 30.0)), "crochet flowers")
+        self.assertEqual(r["opportunity_type"], WATCH)                 # negativa sul proprio target EXACT = spegnere il target
         self.assertIn("TERM_EQUALS_PARENT_TARGET", r["flags"])
+
+    def test_term_equal_to_phrase_target_can_be_an_exact_negative(self):
+        r = only(run(both("FRASE", "PHRASE", "crochet flowers", "crochet flowers", 30, 0, 30.0)), "crochet flowers")
+        self.assertEqual((r["opportunity_type"], r["negative_type"]), (NEGATIVE, "EXACT"))   # il target FRASE resta attivo
+        self.assertIn("NEGATIVE_EXACT_ONLY", r["flags"])
 
 
 class AutoGroupsTests(unittest.TestCase):
@@ -299,11 +306,17 @@ class DuplicatesAndWindowsTests(unittest.TestCase):
         self.assertEqual(r["windows_agreement"], "DISCORDI")
         self.assertEqual((r["opportunity_type"], r["confidence"]), (WATCH, "LOW"))
 
-    def test_strong_65d_without_recent_confirmation_is_only_watch(self):
+    def test_strong_65d_absent_from_30d_is_promoted_with_reduced_confidence(self):
         rows = [st("AUTO", "OTHER", "loose-match", "old winner", D65, 20, 3, 15.0),
                 st("AUTO", "OTHER", "loose-match", "other recent", D30, 20, 0, 3.0)]            # il 30D e' importato per la campagna
         r = only(run(rows), "old winner")
-        self.assertEqual((r["opportunity_type"], r["windows_agreement"]), (WATCH, "NON_CONFERMATO_30D"))
+        self.assertEqual((r["opportunity_type"], r["windows_agreement"], r["confidence"]), (PROMOTE, "ASSENTE_30D", "MEDIUM"))   # assente = nessuna smentita
+
+    def test_strong_65d_with_recent_activity_but_no_signal_stays_watch(self):
+        rows = [st("AUTO", "OTHER", "loose-match", "old winner", D65, 20, 3, 15.0),
+                st("AUTO", "OTHER", "loose-match", "old winner", D30, 2, 0, 1.0)]               # attivita' recente senza segnale: non confermato
+        r = only(run(rows), "old winner")
+        self.assertEqual((r["opportunity_type"], r["windows_agreement"]), (SUGGEST_PHRASE, "NON_CONFERMATO_30D"))   # AUTO non confermato: prima in FRASE, non EXACT
 
     def test_missing_30d_window_uses_65d_with_reduced_confidence(self):
         r = only(run([st("AUTO", "OTHER", "loose-match", "only65", D65, 20, 3, 15.0)]), "only65")

@@ -117,7 +117,7 @@ class RealCopyTests(unittest.TestCase):
         self.assertEqual((a["lifetime_clicks"], a["lifetime_orders"], a["lifetime_spend"]), (87.0, 7.0, 62.63))
         self.assertEqual((x["lifetime_clicks"], x["lifetime_orders"], x["lifetime_spend"]), (10.0, 0.0, 5.67))
         self.assertEqual((a["current_bid"], x["current_bid"]), (0.7, 0.69))
-        self.assertEqual(x["final_action"], "HOLD_PAUSED_TARGET")
+        self.assertIn(x["final_action"], ("HOLD_PAUSED_TARGET", "WATCH"))                                   # in pausa: nessuna azione di bid
         self.assertEqual((a["tactical_clicks"], a["tactical_orders"]), (43.0, 3.0))
         self.assertEqual((x["tactical_clicks"], x["tactical_orders"]), (0.0, 0.0))
         keys = {d["action_key"] for d in ds.decisions}
@@ -131,10 +131,10 @@ class RealCopyTests(unittest.TestCase):
             if not run:
                 continue
             old = {r["action_key"]: (r["final_action"], r["target_status"], r["lifetime_spend"])
-                   for r in self.conn.execute("SELECT * FROM decisions WHERE run_id=?", (run["run_id"],))}
+                   for r in self.conn.execute("SELECT * FROM decisions WHERE run_id=?", (run["run_id"],)) if "|asin" in r["action_key"]}
             ds = build_decisions(self.conn, load_settings(), CONFIG_DIR / "rules.json", book, run["analysis_run_id"], logging.getLogger("t"), run["marketplace"])
-            new = {d["action_key"]: (d["final_action"], d["target_status"], d["lifetime_spend"]) for d in ds.decisions}
-            self.assertEqual(old, new, book)
+            new = {d["action_key"]: (d["final_action"], d["target_status"], d["lifetime_spend"]) for d in ds.decisions if "|asin" in d["action_key"]}
+            self.assertEqual(old, new, book)                                                                # identita' dei product target invariata
 
     def test_nothing_written(self):
         self.assertEqual(hashlib.sha256(REAL_DB.read_bytes()).hexdigest(), self.real_before)

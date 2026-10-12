@@ -94,12 +94,20 @@ class ZeroOrderTests(RuleBase):
         self.assertEqual(self.d(6, 0, 3, 0).action, "WATCH")
         self.assertEqual(self.d(9, 0, 5, 0).action, "WATCH")
 
-    def test_10_clicks_spend_below_royalty(self):
-        r = self.d(10, 0, 6.41, 0)
-        self.assertEqual((r.action, r.bid_change_pct), ("BID_DOWN_5_CANDIDATE", -5))
+    def test_zero_orders_low_spend_or_few_clicks_is_watch_not_bid_down(self):
+        r = self.d(10, 0, 6.41, 0)                          # spesa < 1,25x royalty (royalty 8,55 -> 10,69): troppo presto
+        self.assertEqual((r.action, r.bid_change_pct, r.rule_id), ("WATCH", None, "Z2B"))
+        self.assertEqual(self.d(18, 0, 6.2, 0).action, "WATCH")      # 18 clic, spesa ~0,7x royalty
+        self.assertEqual(self.d(15, 0, 12.0, 0).action, "WATCH")     # spesa ok ma < 20 clic
+        self.assertNotIn("N/A", self.d(18, 0, 6.2, 0).reason.split("[")[0])
 
-    def test_spend_above_royalty_below_double(self):
-        r = self.d(11, 0, 16.10, 0)
+    def test_zero_orders_spend_from_1_25x_royalty_with_20_clicks_is_bid_down_5(self):
+        r = self.d(35, 0, 11.5, 0)                          # 1,35x royalty
+        self.assertEqual((r.action, r.bid_change_pct, r.rule_id), ("BID_DOWN_5_CANDIDATE", -5, "Z3"))
+        self.assertIn("ZERO_ORDER_WASTE", r.flags)
+
+    def test_spend_above_1_5x_royalty_below_double(self):
+        r = self.d(25, 0, 16.10, 0)
         self.assertEqual((r.action, r.bid_change_pct), ("BID_DOWN_10_CANDIDATE", -10))
 
     def test_spend_above_double_royalty_pause_only_as_candidate(self):

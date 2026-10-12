@@ -25,6 +25,18 @@ st.markdown(F.badge(U.label_delivery_source("TARGET"), "blue") + f" {len(tgt)} &
             + F.badge(U.label_delivery_source("CAMPAIGN_FALLBACK"), "purple") + f" {len(fb)} &nbsp; "
             + F.badge(U.label_delivery_source("UNKNOWN"), "grey") + f" {len(unk)}", unsafe_allow_html=True)
 
+from data_access import overview as O  # noqa: E402
+
+full = [i for i in (O.delivery_item(d, parse_delivery_detail) for d in D) if i]
+st.subheader(f"Target attivi da verificare ({len(full)})")
+st.caption("Elenco COMPLETO (nella Panoramica compaiono solo i più rilevanti): nessuna erogazione, pochissime impressioni o forte calo delle impressioni.")
+if full:
+    st.dataframe([{"Campagna": i["campaign"], "Target": i["target"], "Verifica": i["badge"], "Offerta": F.money(i["bid"]),
+                   f"Impressioni ultimi {i['days'] or 30} giorni": F.num(i["impressions_30d"]), "Clic": F.num(i["clicks_30d"]), "Motivo": i["reason"]} for i in full],
+                 use_container_width=True, hide_index=True)
+else:
+    st.success("Nessun target attivo con problemi di erogazione.")
+
 st.subheader(f"Segnali di erogazione del target ({len(tgt)})")
 st.caption("Segnale calcolato sul singolo target: evidenza diretta.")
 rows = []

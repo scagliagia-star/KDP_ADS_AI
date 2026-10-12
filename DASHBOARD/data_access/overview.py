@@ -11,7 +11,12 @@ Soglie (documentate qui e mostrate nella pagina, sezione "Regole usate"):
               impressioni al giorno = EROGAZIONE IN CALO. Mai un suggerimento di alzare l'offerta solo perche' non eroga.
   PAUSA RILEVANTE: target in pausa con azione potenziale conservata, oppure spesa storica >= PAUSED_MIN_SPEND, oppure clic >= PAUSED_MIN_CLICKS.
   DA MONITORARE: WATCH importanti (>= WATCH_MIN_CLICKS clic o spesa >= WATCH_MIN_SPEND) e HOLD con rendimento recente peggiorato.
-  STA ANDANDO BENE: HOLD con >= GOOD_MIN_ORDERS acquisti storici o spesa >= GOOD_MIN_SPEND (le minori finiscono in ALTRE DECISIONI)."""
+  STA ANDANDO BENE: HOLD con >= GOOD_MIN_ORDERS acquisti storici o spesa >= GOOD_MIN_SPEND, oppure target attivo PROFITTEVOLE (ACOS storico <= obiettivo)
+              con >= GOOD_MIN_ORDERS_PROFITABLE acquisti e rendimento recente non peggiorato (le minori finiscono in ALTRE DECISIONI).
+  CALO RELATIVO DI EROGAZIONE (target attivo con storico utile): rapporto per-giorno recente/riferimento del TARGET <= DECLINE_RATIO (periodi con date note,
+              confronto normalizzato per durata, mai lifetime contro 30 giorni in valore assoluto) + storico >= DECLINE_HIST_MIN_CLICKS clic e
+              >= DECLINE_HIST_MIN_ORDERS acquisti + impressioni recenti > 0 ma 0 clic. Senza una base di confronto comparabile del target non si classifica
+              nessun calo (meglio perdere un alert che inventare un trend). Priorita' una sola card: nessuna erogazione > molto bassa > forte calo."""
 import re
 
 from kdp_ads.opportunities import NEGATIVE, NO_ACTION, PRODUCT_WINNER, PROMOTE, PROMOTED, REVIEW_CONFLICT, rank
@@ -25,16 +30,26 @@ PAUSED_MIN_CLICKS = 10
 WATCH_MIN_CLICKS = 10
 WATCH_MIN_SPEND = 10.0
 GOOD_MIN_ORDERS = 5
+GOOD_MIN_ORDERS_PROFITABLE = 2                    # target profittevole (ACOS storico <= obiettivo) con almeno questi acquisti
+DECLINE_HIST_MIN_CLICKS = 20                      # storico significativo per il calo relativo
+DECLINE_HIST_MIN_ORDERS = 1
 GOOD_MIN_SPEND = 30.0
+RECENT_VALID_MIN_CLICKS = 10                      # periodo recente "valido": >= clic (come zero_orders.sample_clicks_min) e >= acquisti; sotto = campione minuscolo
+RECENT_VALID_MIN_ORDERS = 1
+MAX_DELIVERY_HOME = 10                            # righe di EROGAZIONE mostrate in Home (le altre stanno nella pagina Erogazione); il KPI resta il totale
 MAX_ITEMS = 10                                    # elementi mostrati per EXACT / negative
 
 RULES_TEXT = {
     "erogazione": (f"Target ATTIVO con 0 impressioni negli ultimi 30 giorni: nessuna erogazione; da 1 a {LOW_IMPRESSIONS_30D}: erogazione molto bassa; "
                    f"segnale del target in calo con rapporto ≤ {DECLINE_RATIO:g} rispetto al riferimento (almeno {DECLINE_MIN_REF_PER_DAY:g} impressioni/giorno di "
-                   "riferimento): erogazione in calo. Non si suggerisce mai di alzare l'offerta solo perché non eroga."),
+                   "riferimento): erogazione in calo. Anche con meno impressioni di riferimento se lo storico è utile "
+                   f"(≥ {DECLINE_HIST_MIN_CLICKS} clic e ≥ {DECLINE_HIST_MIN_ORDERS} acquisto) e nel recente ci sono impressioni ma nessun clic. "
+                   "Il calo si calcola per giorno su periodi con date note; senza un confronto comparabile non si segnala. "
+                   "Non si suggerisce mai di alzare l'offerta solo perché non eroga."),
     "pausa": (f"Target in pausa con azione potenziale, oppure spesa ≥ {PAUSED_MIN_SPEND:g} o ≥ {PAUSED_MIN_CLICKS} clic."),
     "monitora": (f"Decisioni di monitoraggio con ≥ {WATCH_MIN_CLICKS} clic o spesa ≥ {WATCH_MIN_SPEND:g}, e target in mantenimento con rendimento recente peggiorato."),
-    "bene": f"Target in mantenimento con ≥ {GOOD_MIN_ORDERS} acquisti storici o spesa ≥ {GOOD_MIN_SPEND:g}.",
+    "bene": (f"Target in mantenimento con ≥ {GOOD_MIN_ORDERS} acquisti storici o spesa ≥ {GOOD_MIN_SPEND:g}, oppure attivo e profittevole "
+             f"(ACOS storico entro l'obiettivo) con ≥ {GOOD_MIN_ORDERS_PROFITABLE} acquisti e rendimento recente non peggiorato."),
 }
 
 # ------------------------------------------------------------------ terminologia (solo visualizzazione)
@@ -162,7 +177,19 @@ def short_reason(d: dict, book: dict) -> str:
     rd, td = window_days(d.get("recent_window"), 65), window_days(d.get("tactical_window"), 30)
     orders = d.get("lifetime_orders")
     sig = d.get("recent_vs_historical_signal")
+    zero_orders = (d.get("lifetime_orders") or 0) == 0 and life is None           # 0 acquisti: ACOS n/d, mai confrontato con obiettivo o pareggio
+    roy = book.get("royalty_per_copy")
+    if fa in ("BID_DOWN_5_CANDIDATE", "BID_DOWN_10_CANDIDATE", "BID_DOWN_15_CANDIDATE") and zero_orders:
+        ratio = (f" La spesa è {str(round(_spend(d) / float(roy), 1)).replace('.', ',')} volte la royalty:" if roy else " La spesa ha superato la soglia:")
+        return (f"Ha accumulato {plural(d.get('lifetime_clicks') or 0, 'clic', 'clic')} e {it_money(d.get('lifetime_spend'))} di spesa senza acquisti." + ratio
+                + " riduzione prudente dell'offerta.")
     if fa in ("BID_DOWN_5_CANDIDATE", "BID_DOWN_10_CANDIDATE", "BID_DOWN_15_CANDIDATE"):
+        if life is not None and tgt is not None and life <= tgt:        # storico NON sopra l'obiettivo: mai "spende troppo rispetto all'obiettivo"
+            return (f"Lo storico è in linea con l'obiettivo (ACOS {it_pct(life)} contro {it_pct(tgt)}), ma il rendimento recente è peggiorato: "
+                    "riduzione prudente dell'offerta.")
+        if "STRONG_CONFIRMED_CUT" in str(d.get("flags") or ""):
+            return (f"Storico ({it_pct(life)}) e ultimi {td} giorni ({it_pct(tac)}) sono molto sopra il tuo ACOS di pareggio, con molti clic: "
+                    "riduzione più decisa dell'offerta.")
         s = f"Sta spendendo troppo rispetto al tuo ACOS obiettivo (storico {it_pct(life)} contro {it_pct(tgt)})"
         if rec is not None and tgt is not None and rec <= tgt:
             return s + f", ma gli ultimi {rd} giorni sono migliori ({it_pct(rec)}): riduzione prudente."
@@ -178,14 +205,34 @@ def short_reason(d: dict, book: dict) -> str:
     if fa == "HOLD_PAUSED_TARGET":
         return "Era inefficiente ed è già in pausa." if provably_inefficient(d, book) else "È già in pausa. Nessuna azione necessaria."
     if fa == "WATCH":
+        if "NO_RECENT_TRAFFIC" in str(d.get("flags") or ""):
+            return "Storicamente era da ridurre, ma ora non sta ricevendo traffico e l'offerta è già bassa: verifica l'erogazione prima di toccarla."
+        if "RECENT_ZERO_ORDERS_WATCH" in str(d.get("flags") or ""):
+            return (f"Storicamente è in linea con l'obiettivo, ma negli ultimi {td} giorni ha avuto {plural(d.get('tactical_clicks') or 0, 'clic', 'clic')} "
+                    f"e {it_money(d.get('tactical_spend'))} di spesa senza acquisti. La spesa è ancora bassa per ridurre l'offerta: monitora.")
+        if "LIFETIME_MILD_ZERO_ORDER_WATCH" in str(d.get("flags") or ""):
+            return (f"Lo storico è solo poco sopra l'obiettivo e negli ultimi {td} giorni ha avuto {plural(d.get('tactical_clicks') or 0, 'clic', 'clic')} e "
+                    f"{it_money(d.get('tactical_spend'))} di spesa senza acquisti, ancora sotto le soglie per ridurre l'offerta: monitora.")
+        if "RECENT_GOOD_ZERO_ORDER_WATCH" in str(d.get("flags") or ""):
+            return (f"Storicamente è poco sopra l'obiettivo, ma il periodo recente è profittevole e negli ultimi {td} giorni ha avuto "
+                    f"{plural(d.get('tactical_clicks') or 0, 'clic', 'clic')} e {it_money(d.get('tactical_spend'))} di spesa senza acquisti, ancora sotto le soglie "
+                    "per ridurre l'offerta: monitora.")
         if "MILD_DETERIORATION_MONITOR" in str(d.get("flags") or ""):
             return "Storicamente è ancora profittevole, ma il rendimento recente è peggiorato. Il bid è già basso: monitora prima di ridurlo."
+        if (d.get("lifetime_orders") or 0) == 0 and life is None:
+            return "Non ha ancora generato acquisti, ma la spesa è ancora troppo bassa per giustificare una riduzione dell'offerta."
         if sig == "DECLINING_SIGNAL" or (life is not None and tgt is not None and life <= tgt and tac is not None and tac > tgt):
             return "Storicamente forte, ma il rendimento recente è peggiorato."
         if (life is not None and tgt is not None and life > tgt) or (tac is not None and tgt is not None and tac > tgt):
             return f"Rendimento sotto l'obiettivo ma con pochi dati ({plural(orders or 0, 'acquisto', 'acquisti')} nello storico): tienilo d'occhio."
         return "Dati ancora insufficienti per agire: tienilo d'occhio."
     if fa == "HOLD":
+        if life is not None and tgt is not None and life <= tgt:        # storico entro l'obiettivo: giudica solo il recente valido contro l'obiettivo
+            w = recent_window_used(d)
+            if w is not None and w["acos"] > tgt:
+                return (f"Storicamente in linea con l'obiettivo (ACOS {it_pct(life)}), ma negli ultimi {w['days']} giorni l'ACOS è {it_pct(w['acos'])}, "
+                        f"sopra l'obiettivo {it_pct(tgt)}: tienilo d'occhio.")
+            return "Sta funzionando bene." if (d.get("lifetime_estimated_profit") or 0) > 0 else "Rendimento in linea con l'obiettivo: non serve intervenire."
         if sig == "DECLINING_SIGNAL":
             return "Storicamente forte, ma il rendimento recente è peggiorato."
         if tac is not None and tgt is not None and tac > tgt and (d.get("tactical_orders") or 0) < 3:
@@ -238,16 +285,23 @@ def delivery_item(d: dict, parse_detail=None) -> dict | None:
             cls = "NO_DELIVERY"
         elif imp <= LOW_IMPRESSIONS_30D:
             cls = "VERY_LOW"
+    history = False
     if cls is None and d.get("delivery_source") == "TARGET" and d.get("delivery_signal") in ("DELIVERY_COLLAPSED", "DELIVERY_DECLINING"):
-        r = ref["ratio"]
+        r = ref["ratio"]                                  # rapporto PER GIORNO fra due periodi con date note del TARGET: normalizzato per durata
         if r is not None and r <= DECLINE_RATIO and (ref["per_day"] or 0) >= DECLINE_MIN_REF_PER_DAY:
             cls = "DECLINING"
+        elif (r is not None and r <= DECLINE_RATIO and (ref["per_day"] or 0) > 0 and imp and not (d.get("tactical_clicks") or 0)
+              and (d.get("lifetime_clicks") or 0) >= DECLINE_HIST_MIN_CLICKS and (d.get("lifetime_orders") or 0) >= DECLINE_HIST_MIN_ORDERS):
+            cls, history = "DECLINING", True              # storico utile + calo forte relativo, anche con riferimento giornaliero basso
     if cls is None:
         return None
     if cls == "NO_DELIVERY":
         reason = "Il target è attivo ma non sta ricevendo traffico. Verifica offerta e pertinenza."
     elif cls == "VERY_LOW":
         reason = f"Il target è attivo ma riceve pochissime impressioni ({it_int(imp)} negli ultimi {days} giorni). Verifica offerta e pertinenza."
+    elif history:
+        reason = ("Il target aveva traffico e vendite nello storico, ma negli ultimi 30 giorni l'erogazione è crollata. "
+                  "Verifica pertinenza, competitività dell'offerta e cambiamenti nella campagna.")
     else:
         reason = "Le impressioni sono calate molto rispetto al periodo precedente. Verifica offerta, concorrenza e stato della campagna."
     return {"id": d.get("decision_id") or d.get("pk"), "kind": "DELIVERY", "klass": cls, "badge": DELIVERY_CLASS[cls], "campaign": d.get("campaign_id"),
@@ -275,8 +329,12 @@ def exact_reason(r: dict) -> str:
 def negative_reason(r: dict, symbol="$") -> str:
     base = f"{plural(r.get('clicks') or 0, 'clic', 'clic')}, {it_money(r.get('spend'), symbol)} di spesa"
     if not r.get("orders"):
-        return base + " e nessun acquisto."
-    return base + f", {plural(r['orders'], 'acquisto', 'acquisti')} con ACOS {it_pct(r.get('acos'))}: rendimento molto sotto il pareggio."
+        s = base + " e nessun acquisto."
+    else:
+        s = base + f", {plural(r['orders'], 'acquisto', 'acquisti')} con ACOS {it_pct(r.get('acos'))}: rendimento molto sotto il pareggio."
+    if r.get("negative_type") == "EXACT":
+        s += " È la stessa query del target: aggiungila come negativa esatta, il target resta attivo."
+    return s
 
 
 def conflict_reason(r: dict) -> str:
@@ -386,12 +444,14 @@ def opportunity_items(records: list, otype: str, symbol="$") -> list:
             continue
         seen.add(r["search_term"])
         also = sorted({x["campaign_id"] for x in records if x["search_term"] == r["search_term"] and x["opportunity_type"] == otype and x is not r})
-        out.append({"kind": "EXACT" if otype == PROMOTE else "NEGATIVE", "badge": "METTI IN EXACT" if otype == PROMOTE else "VALUTA COME NEGATIVA",
+        neg_exact = otype == NEGATIVE and r.get("negative_type") == "EXACT"
+        out.append({"kind": "EXACT" if otype == PROMOTE else "NEGATIVE",
+                    "badge": "METTI IN EXACT" if otype == PROMOTE else "VALUTA COME NEGATIVA ESATTA" if neg_exact else "VALUTA COME NEGATIVA",
                     "term": r["search_term"], "campaign": r["campaign_id"], "also_in": also, "parent": target_name(r.get("parent_target")),
                     "parents": [target_name(p) for p in r.get("parent_targets") or []], "origin": _origin(r), "clicks": r.get("clicks"),
                     "orders": r.get("orders"), "spend": r.get("spend"), "sales": r.get("sales"), "acos": r.get("acos"), "confidence": r.get("confidence"),
                     "already_in_exact": bool(r.get("already_in_exact")), "reason": exact_reason(r) if otype == PROMOTE else negative_reason(r, symbol),
-                    "record": r})
+                    "negative_type": r.get("negative_type") if otype == NEGATIVE else None, "record": r})
     return out
 
 
@@ -404,12 +464,41 @@ def _paused_relevant(d: dict) -> bool:
     return bool(d.get("underlying_candidate_action")) or _spend(d) >= PAUSED_MIN_SPEND or (d.get("lifetime_clicks") or 0) >= PAUSED_MIN_CLICKS
 
 
-def _weak_recent(d: dict, book: dict) -> bool:
-    tgt = book.get("target_acos")
+def _profitable_small(d: dict, book: dict) -> bool:
+    """Target ATTIVO in mantenimento, profittevole (ACOS storico <= obiettivo) con almeno GOOD_MIN_ORDERS_PROFITABLE acquisti. Il recente peggiorato e'
+    gia' stato escluso prima (DA MONITORARE). La decisione resta quella del decision layer: qui si decide solo DOVE mostrarla."""
+    life, tgt = d.get("lifetime_acos"), book.get("target_acos")
+    return bool(d.get("target_status") == "ENABLED" and life is not None and tgt is not None and life <= tgt
+                and (d.get("lifetime_orders") or 0) >= GOOD_MIN_ORDERS_PROFITABLE)
+
+
+def recent_window_used(d: dict) -> dict | None:
+    """Periodo recente piu' informativo UTILIZZABILE: il 30 giorni (tattico) se ha almeno RECENT_VALID_MIN_CLICKS clic e RECENT_VALID_MIN_ORDERS acquisti
+    (quindi un ACOS), altrimenti il 65 giorni; None se nessuno dei due e' un campione sufficiente (niente reazioni a campioni minuscoli)."""
+    for prefix, default_days, label in (("tactical", 30, "tactical_window"), ("recent", 65, "recent_window")):
+        clicks, orders, acos = d.get(f"{prefix}_clicks"), d.get(f"{prefix}_orders"), d.get(f"{prefix}_acos")
+        if acos is not None and (clicks or 0) >= RECENT_VALID_MIN_CLICKS and (orders or 0) >= RECENT_VALID_MIN_ORDERS:
+            return {"acos": acos, "clicks": clicks, "orders": orders, "days": window_days(d.get(label), default_days)}
+    return None
+
+
+def recent_state(d: dict, book: dict) -> str | None:
+    """'WEAK' (da monitorare), 'OK' (recente valido entro l'obiettivo) o None (nessun giudizio).
+    Storico entro l'obiettivo: conta SOLO il recente valido contro l'OBIETTIVO; un ACOS recente numericamente piu' alto dello storico ma ancora entro
+    l'obiettivo NON e' un peggioramento (il deterioramento relativo da solo non basta). Storico sopra l'obiettivo (o n/d): regola prudente precedente
+    (segnale in calo, oppure ACOS 30 giorni sopra l'obiettivo con almeno 3 clic)."""
+    tgt, life = book.get("target_acos"), d.get("lifetime_acos")
+    if tgt is not None and life is not None and life <= tgt:
+        w = recent_window_used(d)
+        return None if w is None else ("WEAK" if w["acos"] > tgt else "OK")
     if d.get("recent_vs_historical_signal") == "DECLINING_SIGNAL":
-        return True
+        return "WEAK"
     tac = d.get("tactical_acos")
-    return tac is not None and tgt is not None and tac > tgt and (d.get("tactical_clicks") or 0) >= 3
+    return "WEAK" if tac is not None and tgt is not None and tac > tgt and (d.get("tactical_clicks") or 0) >= 3 else None
+
+
+def _weak_recent(d: dict, book: dict) -> bool:
+    return recent_state(d, book) == "WEAK"
 
 
 def paused_card(d: dict, book: dict) -> dict:
@@ -474,7 +563,7 @@ def build_overview(decisions: list, book: dict, summary: dict, warnings: list, o
             monitor.append(d)
         elif fa == "HOLD" and _weak_recent(d, book):
             monitor.append(d)
-        elif fa == "HOLD" and ((d.get("lifetime_orders") or 0) >= GOOD_MIN_ORDERS or _spend(d) >= GOOD_MIN_SPEND):
+        elif fa == "HOLD" and ((d.get("lifetime_orders") or 0) >= GOOD_MIN_ORDERS or _spend(d) >= GOOD_MIN_SPEND or _profitable_small(d, book)):
             good.append(d)
         else:
             other.append(d)
@@ -499,7 +588,7 @@ def build_overview(decisions: list, book: dict, summary: dict, warnings: list, o
     by_word = {}
     for c in cards["actions"]:
         by_word[c["badge"]] = by_word.get(c["badge"], 0) + 1
-    return {"has_actionable_field": has_flag, "kpi": kpi, **cards, "exact": exact_items, "exact_shown": (exact_items or [])[:MAX_ITEMS],
+    return {"has_actionable_field": has_flag, "kpi": kpi, **cards, "delivery_shown": delivery[:MAX_DELIVERY_HOME], "exact": exact_items, "exact_shown": (exact_items or [])[:MAX_ITEMS],
             "exact_new_campaign": new_campaign, "exact_suggestion": (opp or {}).get("new_exact_campaign"), "negatives": neg_items,
             "conflicts": conflicts, "already_negative": already_neg, "promoted": promoted, "products": products,
             "negatives_shown": (neg_items or [])[:MAX_ITEMS], "others": others, "warnings": warnings, "actions_by_word": by_word, "rules": RULES_TEXT,

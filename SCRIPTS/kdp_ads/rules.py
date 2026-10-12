@@ -183,13 +183,20 @@ def decide(m: Metrics, ctx: BookCtx, report_type: str, action_scope: str = "TARG
             return out("PAUSE_CANDIDATE", None, "ZERO_ORDER_WASTE", "Z5",
                        f"0 ordini, {m.clicks:g} clic, spesa {_money(m.spend)} >= {z['pause_spend_mult']:g}x royalty "
                        f"({_money(z['pause_spend_mult'] * R)}): candidato alla pausa (solo raccomandazione).")
+        # ZERO-ORDER: con 0 acquisti l'ACOS e' n/d e non si confronta mai con target/pareggio; decidono clic, spesa e royalty.
+        # Sotto bid_down_min_clicks clic o bid_down_min_spend_mult x royalty la spesa non giustifica ancora una riduzione: monitorare.
+        if m.clicks < z["bid_down_min_clicks"] or m.spend < z["bid_down_min_spend_mult"] * R:
+            return out("WATCH", None, "WATCH", "Z2B",
+                       f"0 ordini con {m.clicks:g} clic e spesa {_money(m.spend)}: ancora sotto {z['bid_down_min_clicks']} clic o "
+                       f"{z['bid_down_min_spend_mult']:g}x royalty ({_money(z['bid_down_min_spend_mult'] * R)}), troppo presto per ridurre l'offerta: monitorare." + hc)
         if m.spend >= z["bid_down_10_spend_mult"] * R:
             flags.append("ZERO_ORDER_WASTE")
             return out("BID_DOWN_10_CANDIDATE", -10, "ZERO_ORDER_WASTE", "Z4",
-                       f"0 ordini, {m.clicks:g} clic, spesa {_money(m.spend)} tra 1x e {z['pause_spend_mult']:g}x royalty." + scope_note)
+                       f"0 ordini, {m.clicks:g} clic, spesa {_money(m.spend)} tra {z['bid_down_10_spend_mult']:g}x e {z['pause_spend_mult']:g}x royalty." + scope_note)
         flags.append("ZERO_ORDER_WASTE")
         return out("BID_DOWN_5_CANDIDATE", -5, "ZERO_ORDER_WASTE", "Z3",
-                   f"0 ordini, {m.clicks:g} clic (>= {z['sample_clicks_min']}), spesa {_money(m.spend)} < 1x royalty." + scope_note)
+                   f"0 ordini, {m.clicks:g} clic (>= {z['bid_down_min_clicks']}), spesa {_money(m.spend)} tra {z['bid_down_min_spend_mult']:g}x e "
+                   f"{z['bid_down_10_spend_mult']:g}x royalty: riduzione prudente." + scope_note)
 
     # ---------------------------------------------------------------- con ordini
     if m.acos is None:

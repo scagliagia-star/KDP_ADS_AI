@@ -228,6 +228,13 @@ class Repo:
         return out
 
     # ------------------------------------------------------------ opportunita' search term (calcolo in memoria, nessuna scrittura)
+    def rules(self) -> dict:
+        """rules.json del progetto (sola lettura): soglie dei suggerimenti di crescita."""
+        candidates = [Path(self.root) / "CONFIG" / "rules.json"] if self.root else []
+        candidates.append(Path(__file__).resolve().parents[2] / "CONFIG" / "rules.json")
+        path = next((c for c in candidates if c.is_file()), None)
+        return load_rules(path) if path else {}
+
     def search_term_opportunities(self, book, marketplace) -> dict:
         """Opportunita' Search Term di UN libro e UN marketplace, calcolate al volo dai dati importati (kdp_ads.opportunities).
         `book` = riga del libro con l'economia del marketplace (royalty, target ACOS, break-even). Nessuna persistenza."""
