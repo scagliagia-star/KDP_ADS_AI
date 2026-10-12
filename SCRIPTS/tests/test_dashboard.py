@@ -231,7 +231,7 @@ class ReadOnlyTests(DashBase):
     def test_dashboard_has_no_action_buttons(self):
         # V1 (sola lettura): nessun pulsante/form. Le pagine V2 (gestione/importazione) sono escluse da QUESTO controllo
         # (hanno pulsanti perche' scrivono file locali), ma restano soggette a tutti gli altri divieti (rete, Amazon, SQL di scrittura).
-        v2 = ("pages/7_", "pages/8_", "pages/10_", "components/ops_ui.py", "ops/")
+        v2 = ("pages/7_", "pages/8_", "pages/10_", "pages/12_", "components/ops_ui.py", "ops/")
         files = [(p, str(p.relative_to(ROOT / "DASHBOARD")).replace("\\", "/")) for p in (ROOT / "DASHBOARD").rglob("*.py")]
         v1_src = "".join(p.read_text(encoding="utf-8") for p, rel in files if not rel.startswith(v2))
         all_src = "".join(p.read_text(encoding="utf-8") for p, _ in files)
@@ -261,7 +261,7 @@ class UiSmokeTests(DashBase):
         os.environ["KDP_ADS_DB"] = str(self.db)
         try:
             for page in [ROOT / "DASHBOARD" / "app.py", ROOT / "DASHBOARD" / "panoramica.py"] + sorted(
-                    p for p in (ROOT / "DASHBOARD" / "pages").glob("*.py") if not p.name.startswith(("7_", "8_", "10_"))):
+                    p for p in (ROOT / "DASHBOARD" / "pages").glob("*.py") if not p.name.startswith(("7_", "8_", "10_", "12_"))):
                 st = self.stub()
                 sys.modules["streamlit"] = st
                 for m in [m for m in sys.modules if m == "components" or m.startswith("components.")]:

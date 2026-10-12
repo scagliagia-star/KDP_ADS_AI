@@ -256,6 +256,23 @@ class Repo:
         ctx = make_ctx({**book, "marketplace": marketplace}, load_rules(rules_path))
         return compute_opportunities(data["st_rows"], data["target_rows"], data["campaigns"], ctx, map_target_status)
 
+    # ------------------------------------------------------------ ricerca competitor (Helium 10, fonte ESTERNA; sola lettura)
+    def competitor_research(self, book, marketplace, opportunity_records=None) -> dict:
+        """Sezione DA RICERCA COMPETITOR per i Suggerimenti di crescita: keyword Cerebro da testare in FRASE e ASIN competitor non ancora target prodotto,
+        per le ricerche del libro. Separata dai dati Amazon Ads reali (non entra in nessun KPI). DB senza le tabelle competitor_* => sezione vuota."""
+        from kdp_ads import competitor_store as CS
+        conn = self._connect()
+        try:
+            if not CS.has_schema(conn):
+                return {"projects": [], "total": 0}
+            negatives = CS.negatives_from_opportunities(opportunity_records)
+            own = CS.own_context(conn, book["book_id"], marketplace, negatives)
+            return CS.growth_section(conn, book["book_id"], marketplace, self.rules(), own)
+        except sqlite3.Error as e:
+            raise RepoError(f"Schema del database non compatibile: {e}") from e
+        finally:
+            conn.close()
+
     # ------------------------------------------------------------ cross-campaign
     def overlaps(self, analysis_run):
         """Overlap dell'analysis run: (gruppi, messaggio). Letti dal CSV registrato in analysis_runs.overlaps_csv_path."""

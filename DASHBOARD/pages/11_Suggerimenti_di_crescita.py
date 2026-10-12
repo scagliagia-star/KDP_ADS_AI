@@ -8,7 +8,7 @@ import bootstrap  # noqa: F401,E402
 import streamlit as st  # noqa: E402
 
 import ui_labels as U  # noqa: E402
-from components import cards, growth_ui, sidebar  # noqa: E402
+from components import cards, competitor_ui, growth_ui, sidebar  # noqa: E402
 from data_access.repository import RepoError  # noqa: E402
 from kdp_ads import growth as G  # noqa: E402
 
@@ -26,3 +26,10 @@ else:
     st.markdown(f"**{growth['total']} suggerimenti:** " + " · ".join(G.summary_lines(growth)))
 growth_ui.sections(st, growth)
 
+# DA RICERCA COMPETITOR (Helium 10, fonte esterna): sezione SEPARATA, mai mischiata ai dati Amazon Ads reali e fuori dai KPI.
+try:
+    research = ctx.repo.competitor_research(ctx.book, ctx.marketplace, opp["records"] if opp else None)
+except RepoError:
+    research = {"projects": [], "total": 0}
+if research["projects"]:
+    competitor_ui.growth_section(st, research, "pages/12_Ricerca_competitor.py")

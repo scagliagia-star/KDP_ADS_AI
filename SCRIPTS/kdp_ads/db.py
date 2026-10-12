@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .decfields import DEC_FIELDS, STATUSES
 from .recfields import REC_FIELDS
+from . import competitor_store
 
 SCHEMA_VERSION = 5
 
@@ -141,6 +142,7 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     _upgrade(conn)
     conn.executescript(SCHEMA)
+    competitor_store.ensure_schema(conn)                                    # Ricerca competitor (Cerebro): tabelle NUOVE e additive, nessuna esistente toccata
     _ensure_columns(conn, "recommendations", REC_FIELDS)     # colonne aggiunte dopo (nullable, righe storiche = NULL)
     _ensure_columns(conn, "decisions", DEC_FIELDS)
     _ensure_columns(conn, "imports", [("warnings_json", "TEXT")])          # avvisi strutturati dell'import (es. SAME_CONTENT_DIFFERENT_PERIOD)

@@ -23,6 +23,7 @@ NAV_PAGES = [
     ("pages/9_Opportunita_Search_Term.py", "Opportunità Search Term"),
     ("pages/11_Suggerimenti_di_crescita.py", "Suggerimenti di crescita"),
     ("pages/10_Lancio_nuovo_libro.py", "Lancio nuovo libro"),
+    ("pages/12_Ricerca_competitor.py", "Ricerca competitor"),
     ("pages/7_Gestione_libri.py", "Gestione libri"),
     ("pages/8_Importa_report.py", "Importa report"),
 ]
@@ -531,3 +532,23 @@ def display_value(column, v):
         return label_agreement(v)
     return v
 
+
+# ------------------------------------------------------------------ Ricerca competitor (Helium 10 Cerebro). Dati ESTERNI/STIMATI: mai mischiati ai dati Amazon Ads reali.
+COMP_PAGE_TITLE = "Ricerca competitor"
+COMP_SOURCE = "Fonte esterna: Helium 10 Cerebro"
+COMP_BADGE = "HELIUM 10 / FONTE ESTERNA"
+COMP_INTRO = ("Importa da 3 a 5 file CSV Helium 10 Cerebro di altrettanti ASIN competitor. I dati sono stime esterne: non sono ordini, clic, ACOS o vendite del tuo account "
+              "Amazon Ads e non diventano mai Exact, negative, cambi di offerta o pause. Producono solo suggerimenti di ricerca e di test (TESTA IN FRASE) e cluster editoriali "
+              "DA APPROFONDIRE. Nessuna decisione automatica.")
+COMP_NO_BOOK = "Nessun libro — ricerca nuova opportunità editoriale"
+COMP_ASSOCIATE = "Associa questa ricerca a un libro"
+COMP_LOW_RELIABILITY = "Con 1-2 competitor l'analisi è consentita ma l'affidabilità è BASSA: i risultati vanno letti come indicazioni deboli."
+COMP_NONE = "Nessuna ricerca competitor importata."
+COMP_TABS = ["PANORAMICA", "KEYWORD COMUNI", "KEYWORD DI LANCIO", "KEYWORD GAP", "OPPORTUNITÀ ADS", "OPPORTUNITÀ EDITORIALI", "COMPETITOR", "DATI GREZZI"]
+COMP_GAP_NA = "Il gap rispetto alle campagne si applica solo alle ricerche associate a un libro esistente."
+COMP_NO_DECISION = "Nessuna decisione editoriale automatica: i cluster restano DA APPROFONDIRE."
+COMP_GROW_SECTION = "DA RICERCA COMPETITOR"
+COMP_GROW_NOTE = ("Keyword suggerite da Helium 10 (fonte esterna, stime): non sono dati del tuo account Amazon Ads, non contano nei KPI e non modificano nulla. "
+                  "Testale prima in FRASE; mai Exact diretto.")
+COMP_GAP_LABELS = {"NOT_PRESENT": "A · Non presente nelle campagne", "IN_PHRASE": "B · Già presente in FRASE", "IN_EXACT": "C · Già presente in EXACT",
+                   "NEGATIVE": "D · Già negativa", "OBSERVED_SEARCH_TERM": "E · Già osservata nei Search Term", "IN_OTHER": "Già target (altro tipo)"}
