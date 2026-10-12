@@ -211,5 +211,96 @@ class ClusterTierTests(T.Base):
         self.assertTrue(all(x["tier"] == "PRINCIPALE" for x in o["primary"]))
 
 
+class LaunchTableUxTests(T.Base):
+    """Tabella KEYWORD DI LANCIO: colonne operative davanti, Azione, Priorita' UX (solo rappresentazione), volume 0 reale vs mancante."""
+
+    COLS = ["Keyword", "Azione", "Priorità", "Categoria Top 10", "Competitor", "Org. Rank", "Sponsored Rank", "Search Volume", "ADS Score", "Title Density",
+            "Competing Products", "Stato rispetto alle campagne", "Affidabilità", "Libro associato"]
+
+    def items(self, own=None, book=None):
+        rid = S.create_project(self.conn, book, None, "US", now=T.NOW)
+        for asin, rows in FILES:
+            S.import_source(self.conn, rid, T.parsed(asin, rows), now=T.NOW)
+        return {i["keyword_norm"]: i for i in S.analyze(self.conn, rid, own=own)["launch"]}
+
+    def test_column_order_and_homogeneous_text(self):
+        import pandas as pd
+        import pyarrow as pa
+        sys.path.insert(0, str(ROOT / "DASHBOARD"))
+        from components import competitor_ui as CU
+        its = list(self.items(T.own(phrase=["cozy tales for seniors"]), "B0HLL1Y1CN").values())
+        rows = CU.launch_rows(its, "Twenty Women, Twenty Mysteries")
+        self.assertEqual(list(rows[0]), self.COLS)
+        self.assertEqual(list(rows[0])[:4], ["Keyword", "Azione", "Priorità", "Categoria Top 10"])
+        self.assertTrue(all(isinstance(v, str) for r in rows for v in r.values()))
+        pa.Table.from_pandas(pd.DataFrame(rows))
+        self.assertEqual({r["Libro associato"] for r in rows}, {"Twenty Women, Twenty Mysteries"})
+        self.assertEqual({r["Libro associato"] for r in CU.launch_rows(its)}, {"nessuno"})
+
+    def test_action_column(self):
+        its = self.items(T.own(phrase=["cozy tales for seniors"], exact=["existing exact phrase for seniors"], neg=["negated phrase for seniors"],
+                               observed=[{"search_term": "mystery books for seniors", "clicks": 3, "orders": 0, "spend": 1}]), "B0HLL1Y1CN")
+        import sys as _s
+        _s.path.insert(0, str(ROOT / "DASHBOARD"))
+        from components import competitor_ui as CU
+        act = {r["Keyword"]: r["Azione"] for r in CU.launch_rows(its.values())}
+        self.assertEqual(act["new phrase for seniors"], "TESTA IN FRASE")
+        self.assertEqual(act["cozy tales for seniors"], "GIÀ IN FRASE")
+        self.assertEqual(act["existing exact phrase for seniors"], "GIÀ IN EXACT")
+        self.assertEqual(act["negated phrase for seniors"], "GIÀ NEGATIVA")
+        self.assertEqual(act["mystery books for seniors"], "GIÀ OSSERVATA")
+        self.assertEqual(act["large print books"], "GENERICA / DA VALUTARE")                 # generica: non suggerita
+        self.assertEqual(act["golden girls trivia for seniors"], "BRAND/IP — NON SUGGERITA")  # brand: non suggerito
+        self.assertEqual({a for a in act.values() if "FRASE" in a and a.startswith("TESTA")}, {"TESTA IN FRASE"})
+        self.assertEqual([k for k, a in act.items() if a == "TESTA IN FRASE"], [k for k, i in its.items() if i["action"] == "TESTA IN FRASE"])
+
+    def test_priority_classes_and_does_not_touch_score_or_order(self):
+        its = self.items(None)
+        pr = {k: i["priority"] for k, i in its.items()}
+        self.assertEqual(pr["large print books"], "GENERICA")
+        self.assertEqual(pr["short stories for seniors"], "ALTA")                            # organic top 10, 3/3
+        self.assertEqual(pr["sunny days stories for seniors"], "MEDIA")                      # organic+sponsored ma 1 solo competitor
+        self.assertEqual(pr["cozy tales for seniors"], "MEDIA")                              # sponsored su 2 competitor
+        self.assertEqual(pr["mystery books for seniors"], "MEDIA")                           # organic rank 1 ma 1/3
+        self.assertEqual(pr["golden girls trivia for seniors"], "BASSA")
+        self.assertEqual(pr["new phrase for seniors"], "MEDIA")
+        self.assertTrue(all(p in ("ALTA", "MEDIA", "BASSA", "GENERICA") for p in pr.values()))
+        i = its["short stories for seniors"]
+        before = (i["score"]["score"], [x["keyword_norm"] for x in sorted(its.values(), key=C.launch_sort_key)])
+        for it in its.values():
+            it["priority"] = "BASSA"                                                        # alterare la priorita' non cambia score ne' ordine
+        after = (i["score"]["score"], [x["keyword_norm"] for x in sorted(its.values(), key=C.launch_sort_key)])
+        self.assertEqual(before, after)
+        self.assertEqual(i["score"]["score"], C.ads_opportunity_score(i["agg"], C.config())["score"])
+
+    def test_priority_with_real_zero_missing_and_positive_volume(self):
+        mk = lambda vol: [r("vol kw for seniors", vol, 2, None, 3, 100, 100)]                      # noqa: E731
+        res = {}
+        for label, vol in (("zero", 0), ("missing", None), ("positive", 50)):
+            files = [(a, [dict(x, **{"Search Volume": vol}) for x in mk(vol)]) for a in (T.A1, T.A2)] + [(T.A3, [r("other thing for seniors", 5, 40)])]
+            agg = agg_of(files)
+            it = {i["keyword_norm"]: i for i in C.launch_keywords(agg, C.config())}["vol kw for seniors"]
+            res[label] = (it["priority"], it["category"], it["agg"]["competitor_share"], it["score"]["score"], it["agg"]["search_volume"])
+        self.assertEqual((res["zero"][0], res["zero"][4]), ("BASSA", 0))                       # volume 0 reale: max BASSA, ma resta nella sezione
+        self.assertEqual(res["zero"][1:3], ("ORGANIC", "2/3"))                                 # categoria e inclusione invariate
+        self.assertEqual(res["missing"][0], "ALTA")                                            # n/d: nessuna penalita'
+        self.assertIsNone(res["missing"][4])
+        self.assertEqual(res["positive"][0], "ALTA")                                           # >0: invariato
+        self.assertEqual(res["zero"][3], res["positive"][3])                                   # stessa fascia di volume: la priorita' non altera lo score ADS
+
+    def test_volume_zero_real_vs_missing(self):
+        lines = ['"Keyword Phrase","Search Volume","Organic Rank"', '"zero vol",0,3', '"dash vol","-",3', '"empty vol",,3', '"normal vol","1,000",3']
+        data = ("\n".join(lines) + "\n").encode()
+        p = cerebro.parse_cerebro("US_AMAZON_cerebro_B0H5MZP4QW_2026-10-12.csv", data)
+        vol = {r["keyword"]: r["search_volume"] for r in p["rows"]}
+        self.assertEqual(vol, {"zero vol": 0, "dash vol": None, "empty vol": None, "normal vol": 1000})
+        agg = C.aggregate([{"asin": "B0H5MZP4QW", "rows": p["rows"]}])
+        items = C.launch_keywords(agg, C.config())
+        sys.path.insert(0, str(ROOT / "DASHBOARD"))
+        from components import competitor_ui as CU
+        shown = {r["Keyword"]: r["Search Volume"] for r in CU.launch_rows(items)}
+        self.assertEqual(shown, {"zero vol": "0", "dash vol": "n/d", "empty vol": "n/d", "normal vol": "1,000"})
+
+
 if __name__ == "__main__":
     unittest.main()

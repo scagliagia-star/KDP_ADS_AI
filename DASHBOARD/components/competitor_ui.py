@@ -35,10 +35,12 @@ def gap_rows(gap) -> list:
 
 
 def launch_rows(items, book_label=None) -> list:
-    return [{"Keyword": i["keyword"], "Categoria Top 10": i["badge"], "Competitor": i["agg"]["competitor_share"], "Miglior Organic Rank": n(i["agg"]["best_organic_rank"]),
-             "Miglior Sponsored Rank": n(i["agg"]["best_sponsored_rank"]), "Search Volume": n(i["agg"]["search_volume"]), "Title Density": n(i["agg"]["title_density"], 1),
-             "Competing Products": n(i["agg"]["competing_products"]), "ADS Opportunity Score": n(i["score"]["score"], 1), "Generica": "SÌ" if i["generic"] else "no",
-             "Libro associato": book_label or "nessuno", "Stato rispetto alle campagne": i["status_label"], "Affidabilità": i["reliability"]} for i in items]
+    """Tabella compatta, colonne operative davanti: keyword -> azione -> priorita' -> segnale Top 10. Tutte le colonne sono testo ("n/d" se il dato manca;
+    uno zero reale resta "0")."""
+    return [{"Keyword": i["keyword"], "Azione": i["action_label"], "Priorità": i["priority"], "Categoria Top 10": i["badge"], "Competitor": i["agg"]["competitor_share"],
+             "Org. Rank": n(i["agg"]["best_organic_rank"]), "Sponsored Rank": n(i["agg"]["best_sponsored_rank"]), "Search Volume": n(i["agg"]["search_volume"]),
+             "ADS Score": n(i["score"]["score"], 1), "Title Density": n(i["agg"]["title_density"], 1), "Competing Products": n(i["agg"]["competing_products"]),
+             "Stato rispetto alle campagne": i["status_label"], "Affidabilità": i["reliability"], "Libro associato": book_label or "nessuno"} for i in items]
 
 
 def launch_badge(i) -> str:

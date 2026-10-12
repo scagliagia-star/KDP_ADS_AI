@@ -466,6 +466,28 @@ def launch_sort_key(item):
             k["competing_products"] if k["competing_products"] is not None else 10 ** 12, k["keyword_norm"])
 
 
+def launch_priority(item: dict) -> str:
+    """PRIORITA' UX (ALTA / MEDIA / BASSA / GENERICA): sola rappresentazione dell'ordinamento e dei segnali GIA' esistenti (categoria top 10, competitor, priorita' del
+    punteggio Ads). Non e' un nuovo algoritmo e non modifica ne' lo score ne' l'ordine.
+      GENERICA  generic_keyword
+      ALTA      categoria BOTH/ORGANIC, su almeno 2 competitor, priorita' score non BASSA
+      MEDIA     buon segnale ma conferma inferiore (BOTH/ORGANIC su 1 competitor, oppure SPONSORED su almeno 2 competitor)
+      BASSA     il resto (un solo competitor sponsored, score basso, brand/IP) e qualunque keyword con Search Volume realmente 0.
+                Un volume mancante (None, "n/d") NON e' penalizzato."""
+    k = item["agg"]
+    if item["generic"]:
+        return "GENERICA"
+    if item["status"] == "BRAND" or item["score"]["priority"] == "BASSA":
+        return "BASSA"
+    if k["search_volume"] is not None and k["search_volume"] == 0:        # volume realmente 0 (non mancante): resta in lista ma mai ALTA/MEDIA
+        return "BASSA"
+    if item["category"] in ("BOTH", "ORGANIC") and k["competitor_count"] >= 2:
+        return "ALTA"
+    if item["category"] in ("BOTH", "ORGANIC") or k["competitor_count"] >= 2:
+        return "MEDIA"
+    return "BASSA"
+
+
 def launch_keywords(agg: dict, cfg: dict, gap_rows: list | None = None, book_title: str | None = None) -> list:
     """KEYWORD DI LANCIO: tutte le keyword con almeno un competitor in top 10 (organico e/o sponsorizzato). Le generiche restano visibili (flag, priorita' ridotta);
     brand/IP e ASIN restano elencati ma con stato BRAND e mai suggeriti. `gap_rows` = gap_table(...) (solo EXISTING_BOOK), altrimenti None."""
@@ -482,6 +504,9 @@ def launch_keywords(agg: dict, cfg: dict, gap_rows: list | None = None, book_tit
                     "generic": k["generic_keyword"], "status": status, "status_label": LAUNCH_STATUS[status], "score": sc, "relevance": relevance_to_book(k["keyword_norm"], btoks),
                     "badge": ("TOP 10 · GENERICA" if k["generic_keyword"] else LAUNCH_LABELS[k["top10_category"]]), "reliability": keyword_reliability(k),
                     "action": "TESTA IN FRASE" if status == "NEW" else None})
+    for i in out:
+        i["priority"] = launch_priority(i)
+        i["action_label"] = i["action"] or i["status_label"]          # colonna Azione: TESTA IN FRASE solo per keyword nuove; altrimenti lo stato coerente
     out.sort(key=launch_sort_key)
     return out
 

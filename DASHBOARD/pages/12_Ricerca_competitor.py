@@ -177,6 +177,9 @@ else:
             else:
                 st.caption("Una keyword nuova in top 10 può diventare TESTA IN FRASE; mai Exact automatico.")
             st.dataframe(CU.launch_rows(items, proj.get("book_title")), use_container_width=True, hide_index=True)
+            st.caption("Priorità = lettura dell'ordinamento: ALTA (Organic/Organic+Sponsored Top 10 su almeno 2 competitor) · MEDIA (buon segnale, conferma inferiore) · "
+                       "BASSA (segnale debole o un solo competitor) · GENERICA (keyword generica). Non cambia l'ADS Score. Azione: TESTA IN FRASE solo per keyword nuove, "
+                       "non generiche e non brand/IP; altrimenti lo stato.")
             st.caption("Badge: ORGANIC TOP 10 · SPONSORED TOP 10 · ORGANIC + SPONSORED TOP 10 · TOP 10 · GENERICA (visibile ma con priorità ridotta). "
                        f"{U.COMP_SOURCE}.")
 

@@ -348,12 +348,19 @@ class GrowthIntegrationTests(unittest.TestCase):
             db = Path(tmp) / "k.db"
             dst = sqlite3.connect(db)
             src.backup(dst)
+            for t in ("competitor_opportunity_keywords", "competitor_opportunities", "competitor_keyword_observations", "competitor_research_keywords",
+                      "competitor_research_sources", "competitor_research_projects"):
+                try:
+                    dst.execute(f"DELETE FROM {t}")                       # SOLO nella copia: il test parte da un DB senza ricerche (l'utente puo' averne importate nel DB reale)
+                except sqlite3.OperationalError:
+                    pass
+            dst.commit()
             dst.close()
             src.close()
             old = os.environ.get("KDP_ADS_DB")
             os.environ["KDP_ADS_DB"] = str(db)
             try:
-                before = AppTest.from_file(str(GROWTH), default_timeout=120).run()
+                before =AppTest.from_file(str(GROWTH), default_timeout=120).run()
                 before = tov.select(before, "Libro", self.BOOK)
                 self.assertFalse(before.exception)
                 head_before = [h.value for h in before.header]
