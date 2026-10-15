@@ -532,8 +532,17 @@ def other_row(d: dict) -> dict:
             "status": d.get("target_status"), "priority": d.get("priority"), "decision": d}
 
 
-def build_overview(decisions: list, book: dict, summary: dict, warnings: list, opp: dict | None, parse_detail=None, symbol="$") -> dict:
-    """Tutte le sezioni e i KPI. `opp` = risultato di Repo.search_term_opportunities (None se non calcolabile). I KPI sono len() delle liste."""
+def account_text(account_id, names: dict | None = None) -> str | None:
+    """«Account: nome · ID» di una decisione/opportunita' (None = campagna legacy senza account: nessuna etichetta inventata)."""
+    if not account_id:
+        return None
+    name = (names or {}).get(account_id)
+    return f"Account: {name} · {account_id}" if name else f"Account: {account_id}"
+
+
+def build_overview(decisions: list, book: dict, summary: dict, warnings: list, opp: dict | None, parse_detail=None, symbol="$", account_names: dict | None = None) -> dict:
+    """Tutte le sezioni e i KPI. `opp` = risultato di Repo.search_term_opportunities (None se non calcolabile). I KPI sono len() delle liste.
+    Ogni scheda riporta il proprio ACCOUNT Amazon Ads (campo `account`) quando noto: con piu' account una decisione non e' mai anonima."""
     has_flag = summary.get("actionable") is not None
     actionable = sorted((d for d in decisions if d.get("operationally_actionable")),
                         key=lambda d: (_PRIORITY_ORDER.get(d.get("priority"), 9), -_spend(d), str(d.get("target"))))
@@ -588,6 +597,14 @@ def build_overview(decisions: list, book: dict, summary: dict, warnings: list, o
     by_word = {}
     for c in cards["actions"]:
         by_word[c["badge"]] = by_word.get(c["badge"], 0) + 1
+    names = {d["amazon_account_id"]: d.get("amazon_account_name") for d in decisions if d.get("amazon_account_id") and d.get("amazon_account_name")}
+    names.update(account_names or {})
+    for lst in cards.values():
+        for c in lst:
+            c["account"] = account_text((c.get("decision") or {}).get("amazon_account_id"), names)
+    for lst in (exact_items, neg_items, conflicts, promoted, products):
+        for it in lst or []:
+            it["account"] = account_text((it.get("record") or {}).get("amazon_account_id"), names)
     return {"has_actionable_field": has_flag, "kpi": kpi, **cards, "delivery_shown": delivery[:MAX_DELIVERY_HOME], "exact": exact_items, "exact_shown": (exact_items or [])[:MAX_ITEMS],
             "exact_new_campaign": new_campaign, "exact_suggestion": (opp or {}).get("new_exact_campaign"), "negatives": neg_items,
             "conflicts": conflicts, "already_negative": already_neg, "promoted": promoted, "products": products,

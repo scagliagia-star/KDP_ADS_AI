@@ -647,6 +647,7 @@ class PilotBookTests(unittest.TestCase):
                     cols = [x for x in cols if not (t == "imports" and x == "warnings_json")]          # colonna nuova (avvisi strutturati), NULL sui vecchi
                     cols = [x for x in cols if not (t in ("target_rows", "search_term_rows") and (x.startswith("amazon_") or x in ("row_date_from", "row_date_to")))]   # tracciabilita' report globali (nullable)
                     cols = [x for x in cols if not (t == "decisions" and x.startswith("trend_"))]      # colonne nuove del trend 7D (nullable, NULL sulle decisioni storiche)
+                    cols = [x for x in cols if not (t in ("decisions", "campaigns") and x.startswith("amazon_account"))]   # colonne account Ads (nullable, NULL sullo storico)
                     rows = c.execute(f"SELECT {','.join(cols)} FROM {t} ORDER BY 1,2").fetchall() if cols else []
                     out[t] = (len(rows), hashlib.sha256(json.dumps(rows, default=str).encode()).hexdigest())
                 c.close()

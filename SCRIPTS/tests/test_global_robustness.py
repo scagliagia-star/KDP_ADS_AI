@@ -325,7 +325,7 @@ class CampaignIdentityTests(tg.WsBase):
     def test_confirmed_backfill_links_the_real_campaign_and_inherits_lifetime(self):
         add_legacy(self.ws, tg.BOOK_A, "FRASE", "PHRASE", LEGACY_PH)
         GI.run_import(self.ws, {"TARGETING_30D": ("t30.csv", phrase_report(tg.C_PH))}, recalc=False)
-        r = GI.associate(self.ws, "176948463003177", tg.BOOK_A, backfill_of="FRASE", recalc=False)
+        r = GI.associate(self.ws, "176948463003177", tg.BOOK_A, backfill_of="FRASE", recalc=False, confirm_legacy_account=True)
         self.assertTrue(r.ok, r.errors)
         self.assertEqual(r.data["campaign_id"], "FRASE")
         kinds = {x["report_scope"] for x in self.q("SELECT report_scope FROM target_rows WHERE campaign_id='FRASE' AND book_id=?", tg.BOOK_A)}
@@ -337,7 +337,7 @@ class CampaignIdentityTests(tg.WsBase):
         add_legacy(self.ws, tg.BOOK_A, "FRASE", "PHRASE", [("totally different one", "A frase", 0.5), ("totally different two", "A frase", 0.5), ("another unrelated", "A frase", 0.5)])
         GI.run_import(self.ws, {"TARGETING_30D": ("t30.csv", phrase_report(tg.C_PH))}, recalc=False)       # stesso libro, stesso tipo, nessun target in comune
         self.assertEqual(GI.backfill_candidates(self.ws), [])
-        r = GI.associate(self.ws, "176948463003177", tg.BOOK_A, backfill_of="FRASE", recalc=False)
+        r = GI.associate(self.ws, "176948463003177", tg.BOOK_A, backfill_of="FRASE", recalc=False, confirm_legacy_account=True)
         self.assertFalse(r.ok)                                                                          # backfill forzato a mano: rifiutato
         self.assertIn("NON dimostrata", r.errors[0])
         self.assertEqual(GI.counts(self.ws)["ASSIGNED"], 0)

@@ -94,6 +94,28 @@ def _no_recent_traffic(Tv, tpid, bid, status, ctx, cfg) -> bool:
     return bool((Tv is None or (Tv.m.clicks == 0 and Tv.m.spend == 0)) and bid <= cfg["mild_low_bid_royalty_frac"] * ctx.royalty)
 
 
+def _account_of(conn, book_id, rows) -> dict:
+    """{campaign_id interno: (ID account, nome account)} dalle campagne del libro (colonna amazon_account_id) con ripiego sulle righe dati; le campagne legacy senza
+    account restano assenti: mai un account dedotto da nome/tipo/target."""
+    out = {}
+    try:
+        for r in conn.execute("SELECT campaign_id, amazon_account_id FROM campaigns WHERE book_id=?", (book_id,)):
+            if r[1]:
+                out[r[0]] = r[1]
+    except Exception:                                       # DB senza la colonna (schema precedente): nessun account
+        pass
+    for r in rows:
+        if r.get("amazon_account_id"):
+            out.setdefault(r["campaign_id"], r["amazon_account_id"])
+    names = {}
+    try:
+        for r in conn.execute("SELECT account_id, MAX(account_name_last_seen) FROM campaign_book_mapping WHERE account_id<>'' GROUP BY account_id"):
+            names[r[0]] = r[1]
+    except Exception:
+        pass
+    return {cid: (a, names.get(a)) for cid, a in out.items()}
+
+
 def map_target_status(raw_json) -> str:
     try:
         raw = json.loads(raw_json) if raw_json else {}
@@ -228,6 +250,7 @@ class DecisionSet:
     amazon_campaign_level: list = field(default_factory=list)
     amazon_campaign_notes: list = field(default_factory=list)
     camp_ctx: dict = field(default_factory=dict)
+    acct_of: dict = field(default_factory=dict)             # campaign_id interno -> (ID account Amazon Ads, nome account) (assente = legacy_account_unknown)
 
     @property
     def decision_warnings(self) -> list:
@@ -310,6 +333,7 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
     trows, srows = _load(conn, "target_rows", book_id, mp), _load(conn, "search_term_rows", book_id, mp)
     srows, bad_st = split_search_terms(srows)                           # metriche impossibili: escluse (cross-campaign/CVR), avviso dati
     ds.warnings += impossible_warnings(bad_st)
+    ds.acct_of = _account_of(conn, book_id, trows + srows)          # ogni decisione risale al suo account Amazon Ads
     for r in srows:
         r["target_type"] = target_type(r["target"], r.get("campaign_type"))
     bid_of = {}
@@ -825,7 +849,8 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
     d = {
         "decision_id": None, "action_key": e.key, "run_id": None, "analysis_run_id": analysis_run_id, "generated_at": now,
         "book_id": book_id, "marketplace": ctx.marketplace, "campaign_id": e.campaign_id, "campaign_name": base_rec["campaign_name"],
-        "campaign_type": base_rec["campaign_type"], "target": e.target, "target_type": tgt_type,
+        "campaign_type": base_rec["campaign_type"], "amazon_account_id": (ds.acct_of.get(e.campaign_id) or (None, None))[0],
+        "amazon_account_name": (ds.acct_of.get(e.campaign_id) or (None, None))[1], "target": e.target, "target_type": tgt_type,
         "match_type": base_rec["match_type"] if e.kind != "neg" else None,
         "search_term": negs[0].rec["search_term"] if negs else None,
         "current_bid": match_row["bid"] if match_row else None,

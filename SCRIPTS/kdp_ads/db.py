@@ -229,7 +229,9 @@ def _upgrade(conn):
     v3 -> v4 (multi-marketplace): colonne/tabella nuove, nessuna riga toccata.
     v4 -> v5 (deduplica per snapshot): ricopia imports con UNIQUE (libro, campagna, tipo, periodo, hash), nessuna riga persa.
     v5 -> v6 (SOLO additiva): tabelle nuove (competitor_*, global_report_imports, global_report_rows, campaign_book_mapping) e colonne nullable di tracciabilita'
-    amazon_campaign_id / amazon_ad_group_id / amazon_target_id / row_date_from / row_date_to su target_rows e search_term_rows. Nessun DROP, nessuna riga toccata:
+    amazon_campaign_id / amazon_ad_group_id / amazon_target_id / amazon_account_id / row_date_from / row_date_to su target_rows e search_term_rows (amazon_account_id anche su campaigns e decisions).
+    MULTI-ACCOUNT: la mappa campagne ha chiave (account, ID campagna Amazon); la v6 non e' mai stata applicata al DB reale (resta v5), quindi la forma definitiva e' incorporata nella v6
+    senza una v7; un DB di sviluppo con la prima forma viene portato a quella nuova da globalstore.ensure_schema (ricopia le righe, la vecchia tabella resta come audit). Nessun DROP, nessuna riga toccata:
     qui si fa solo il backup e si alza user_version; tabelle e colonne le crea (idempotente) connect() con CREATE ... IF NOT EXISTS / ALTER ... ADD COLUMN.
     Prima di OGNI migrazione di un DB esistente si crea un backup (una volta sola: a schema aggiornato non si ripete)."""
     ver = conn.execute("PRAGMA user_version").fetchone()[0]

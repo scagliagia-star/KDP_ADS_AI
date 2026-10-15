@@ -183,7 +183,7 @@ def build_growth(decisions, opp_records, book, cfg=None, warnings=(), rank=None)
         else:
             how = ""
         out["DEVELOP"].append({"category": "DEVELOP", "campaign": cid, "campaign_type": ctype, "clicks": clicks, "orders": orders, "spend": spend,
-                               "sales": sum(d.get("lifetime_sales") or 0 for d in ds), "acos": None, "active_targets": active, "candidates": concrete,
+                               "sales": sum(d.get("lifetime_sales") or 0 for d in ds), "acos": None, "active_targets": active, "candidates": concrete, "decision": ds[0],
                                "secondary": not concrete, "confidence": "MEDIA" if concrete else "BASSA",
                                "reason": (f"La campagna non ha ancora generato ordini ma ha poco traffico ({clicks:g} clic, spesa ancora bassa): non è inefficiente, "
                                           "ha poca copertura. " + (how if concrete else "Copertura limitata: valuta ricerca di nuove keyword."))})

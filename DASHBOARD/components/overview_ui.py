@@ -29,6 +29,12 @@ def kpis(st, ov):
         st.caption(f"Candidati negativi: {len(ov['negatives'])} in totale, qui sotto i primi {O.MAX_ITEMS}.")
 
 
+def _acct(st, c):
+    """Riga ACCOUNT di una scheda (solo se l'account e' noto)."""
+    if c.get("account"):
+        st.caption(c["account"])
+
+
 def _see_all(st):
     try:
         st.page_link("pages/9_Opportunita_Search_Term.py", label=U.OV_SEE_ALL_OPP)
@@ -81,6 +87,7 @@ def action_card(st, c, book):
     with st.container(border=True):
         st.markdown(f"## {c['headline']}")
         st.markdown(f"**{F.esc(c['title'])}** · {U.label_priority(c['priority']) if c['priority'] else F.ND}")
+        _acct(st, c)
         if c["bid"]:
             b = c["bid"]
             m = st.columns(3)
@@ -127,6 +134,7 @@ def today(st, ov, book):
 # ------------------------------------------------------------------ opportunita' Search Term
 def _opp_line(st, i):
     st.markdown(f"{F.badge(i['badge'], 'green' if i['kind'] == 'EXACT' else 'red')} **{F.esc(i['term'])}**", unsafe_allow_html=True)
+    _acct(st, i)
     extra = f" (anche in {', '.join(i['also_in'])})" if i["also_in"] else ""
     st.caption(f"Campagna origine: {i['campaign']}{extra} · Target padre: {i['parent']} · Tipo origine: {i['origin']}"
                + (f" · Già presente in EXACT: {'sì' if i['already_in_exact'] else 'no'}" if i["kind"] == "EXACT" else ""))
@@ -184,6 +192,7 @@ def promoted_section(st, ov):
     for i in items:
         with st.container(border=True):
             st.markdown(f"{F.badge(i['badge'], 'grey' if i['paused'] else 'green')} **{F.esc(i['term'])}**", unsafe_allow_html=True)
+            _acct(st, i)
             st.caption(f"Campagna di scoperta: {i['campaign']} · Campagna EXACT: {', '.join(i['exact_campaigns'])}")
             st.markdown(f"Clic {F.num(i['clicks'])} · Acquisti {F.num(i['orders'])} · Spesa {F.money(i['spend'])} · Vendite {F.money(i['sales'])} · "
                         f"ACOS {F.acos(i['acos'])}")
@@ -199,6 +208,7 @@ def products_section(st, ov):
     for i in items:
         with st.container(border=True):
             st.markdown(f"{F.badge(i['badge'], 'green')} **ASIN {F.esc(i['asin'])}**", unsafe_allow_html=True)
+            _acct(st, i)
             st.caption(f"Campagna: {i['campaign']} · Stato target: {U.label_status(i['status'])}")
             st.markdown(f"Clic {F.num(i['clicks'])} · Acquisti {F.num(i['orders'])} · Spesa {F.money(i['spend'])} · Vendite {F.money(i['sales'])} · "
                         f"ACOS {F.acos(i['acos'])}")
@@ -222,6 +232,7 @@ def conflicts_section(st, ov):
         for i in items:
             with st.container(border=True):
                 st.markdown(f"{F.badge(i['badge'], 'orange')} **{F.esc(i['term'])}**", unsafe_allow_html=True)
+                _acct(st, i)
                 st.caption(f"Campagna: {i['campaign']} · Target padre: {i['parent']} · Tipo origine: {i['origin']}")
                 st.markdown(f"Clic {F.num(i['clicks'])} · Acquisti {F.num(i['orders'])} · Spesa {F.money(i['spend'])} · Vendite {F.money(i['sales'])} · "
                             f"ACOS {F.acos(i['acos'])}")
@@ -252,6 +263,7 @@ def delivery_section(st, ov, book=None):
     for i in shown:
         with st.container(border=True):
             st.markdown(f"{F.badge(i['badge'], 'orange')} **{F.esc(i['title'])}**", unsafe_allow_html=True)
+            _acct(st, i)
             st.markdown(f"Offerta {F.money(i['bid'])} · Impressioni ultimi {i['days']} giorni: **{F.num(i['impressions_30d'])}** · "
                         f"Clic: {F.num(i['clicks_30d'])} · Stato target: {U.label_status(i['status'])}")
             st.markdown(f"_{i['reason']}_")
@@ -266,6 +278,7 @@ def paused_section(st, ov):
     for c in ov["paused"]:
         with st.container(border=True):
             st.markdown(f"{F.badge(c['badge'], 'grey')} **{F.esc(c['title'])}**", unsafe_allow_html=True)
+            _acct(st, c)
             st.markdown(f"_{c['reason']}_ · Spesa storica {F.money(c['spend'])} · Clic {F.num(c['clicks'])} · ACOS storico {_acos(c['acos']['lifetime'])}")
             if c["note"]:
                 st.caption(c["note"])
@@ -281,6 +294,7 @@ def monitor_section(st, ov):
     for c in ov["monitor"]:
         with st.container(border=True):
             st.markdown(f"{F.badge(c['badge'], 'yellow')} **{F.esc(c['title'])}**", unsafe_allow_html=True)
+            _acct(st, c)
             st.markdown(f"_{c['reason']}_")
             st.caption(f"ACOS storico {_acos(c['lifetime_acos'])} · ACOS ultimi {c['tactical_days']} giorni {_acos(c['tactical_acos'])} · "
                        f"Acquisti ultimi {c['tactical_days']} giorni {F.num(c['tactical_orders'])}")
@@ -293,6 +307,7 @@ def good_section(st, ov):
     for c in ov["good"]:
         with st.container(border=True):
             st.markdown(f"{F.badge(c['badge'], 'green')} **{F.esc(c['title'])}**", unsafe_allow_html=True)
+            _acct(st, c)
             st.markdown(f"_{c['reason']}_")
             st.caption(f"ACOS storico {_acos(c['lifetime_acos'])} · ACOS ultimi {c['recent_days']} giorni {_acos(c['recent_acos'])} · "
                        f"Acquisti {F.num(c['orders'])} · Profitto stimato {F.money(c['profit'])}")

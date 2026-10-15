@@ -76,6 +76,9 @@ if isinstance(pv, dict) and pv.get("fp") == fingerprint and files:
             p = v["preview"]
             tone = {"NUOVO": "green", "DUPLICATO": "grey", "CONFLITTO": "red"}.get(p["status"], "grey")
             st.markdown(f"**{GI.SLOT_LABELS[slot]}** · {F.badge(p['status'], tone)} · {F.esc(p['file_name'])}", unsafe_allow_html=True)
+            acc_line = (f"**ACCOUNT AMAZON** · Nome: **{F.esc(p.get('account_name') or 'non indicato nel file')}** · ID: `{p['account_id']}`" if p.get("account_id")
+                        else f"**ACCOUNT AMAZON** · {F.badge('NON DETERMINABILE', 'red')} · ID rilevati nel file: {', '.join(p.get('account_ids') or []) or 'nessuno'}")
+            st.markdown(acc_line, unsafe_allow_html=True)
             c = st.columns(4)
             c[0].metric("Tipo di report", p["report_label"])
             c[1].metric("Finestra assegnata", f"{p['window_label'].replace('RECENT_', 'Ultimi ').replace('D', ' giorni')}")
@@ -110,6 +113,10 @@ if isinstance(pv, dict) and pv.get("fp") == fingerprint and files:
                     S["gr_n"] = n_up + 1
                     S.pop("gr_pv", None)
                     st.rerun()
+    batch_accounts = sorted({(v["preview"].get("account_id"), v["preview"].get("account_name")) for v in pv["data"].values() if "preview" in v and v["preview"].get("account_id")})
+    if len(batch_accounts) > 1:
+        st.warning("Questo gruppo di file contiene report di " + str(len(batch_accounts)) + " account Amazon Ads diversi (" + "; ".join(f"{n or 'senza nome'} · {i}" for i, n in batch_accounts)
+                   + "). Ogni file viene importato nel proprio account, senza collisioni; per chiarezza conviene caricare un gruppo di 4 file per account.")
     st.caption(U.GLOBAL_PREVIEW_NOTE)
     if st.button("IMPORTA", key="gr_import", disabled=importable == 0) is True:
         do_import()
@@ -157,7 +164,8 @@ with st.expander("Storico dei report globali importati"):
     if not hist:
         st.caption("Nessun report globale importato.")
     else:
-        st.dataframe([{"Report": ("Targeting" if h["report_type"] == "TARGETING" else "Search Term"), "Finestra": h["window_label"].replace("RECENT_", ""), "Dal": h["date_from"],
+        st.dataframe([{"Account": (f"{h.get('account_name') or 'senza nome'} · {h['account_id']}" if h.get("account_id") else "non noto"),
+                       "Report": ("Targeting" if h["report_type"] == "TARGETING" else "Search Term"), "Finestra": h["window_label"].replace("RECENT_", ""), "Dal": h["date_from"],
                        "Al": h["date_to"], "Marketplace": h["marketplace"], "File": h["file_name"], "Importato il": str(h["imported_at"])[:16].replace("T", " "),
                        "Righe": F.num(h["row_count"]), "Campagne": F.num(h["campaign_count"]), "Termini vuoti": F.num(h["empty_search_term_rows"])} for h in hist],
                      use_container_width=True, hide_index=True)

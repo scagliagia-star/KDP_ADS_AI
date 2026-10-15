@@ -1,6 +1,9 @@
 """Suggerimenti di crescita: card GUARDA ANCHE (Home) e sezioni della pagina dedicata. Solo presentazione; nessuna azione su Amazon Ads."""
 import formatting as F
 import ui_labels as U
+from data_access import overview as O
+
+NAMES: dict = {}                                            # {ID account: nome}, impostato dalla pagina prima di mostrare le schede
 
 PAGE = "pages/11_Suggerimenti_di_crescita.py"
 CATEGORY_TITLES = {"SCALE": U.GROW_SCALE, "AUTO_TO_PHRASE": U.GROW_AUTO_PHRASE, "TO_EXACT": U.GROW_TO_EXACT, "DEVELOP": U.GROW_DEVELOP, "NEW_PRODUCT": U.GROW_NEW_PRODUCT}
@@ -35,7 +38,10 @@ def _conf(i):
 
 def card(st, i):
     cat = i["category"]
+    acct = O.account_text(((i.get("decision") or i.get("record") or {}).get("amazon_account_id")), NAMES)
     with st.container(border=True):
+        if acct:
+            st.caption(acct)
         if cat == "SCALE":
             st.markdown(f"{F.badge('ALZA OFFERTA 5%', 'green')} **{F.esc(str(i['campaign']))} · {F.esc(U.display_target(i['target']))}**", unsafe_allow_html=True)
             st.caption(f"Tipo: {U.label_target_type(i.get('target_type'))} · Campagna: {i['campaign']}")

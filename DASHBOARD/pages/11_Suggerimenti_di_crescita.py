@@ -24,6 +24,7 @@ if not growth["total"]:
     st.info(U.GROW_NONE)
 else:
     st.markdown(f"**{growth['total']} suggerimenti:** " + " · ".join(G.summary_lines(growth)))
+growth_ui.NAMES = {d["amazon_account_id"]: d.get("amazon_account_name") for d in ctx.decisions if d.get("amazon_account_id") and d.get("amazon_account_name")}
 growth_ui.sections(st, growth)
 
 # DA RICERCA COMPETITOR (Helium 10, fonte esterna): sezione SEPARATA, mai mischiata ai dati Amazon Ads reali e fuori dai KPI.

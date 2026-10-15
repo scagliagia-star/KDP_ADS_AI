@@ -74,6 +74,17 @@ def book_campaign_counts(ws) -> dict:
         conn.close()
 
 
+def accounts(ws) -> list:
+    """Account Amazon Ads noti (da mapping e report): [{account_id, account_name, campaigns, assigned, unassigned, ignored, imports}]."""
+    conn = read_conn(ws)
+    if conn is None:
+        return []
+    try:
+        return GS.accounts(conn)
+    finally:
+        conn.close()
+
+
 def backfill_candidates(ws) -> list:
     """Suggerimenti di BACKFILL (campagna Amazon <-> campagna storica) con prova sui target. Solo letture: nulla viene collegato senza conferma."""
     conn = read_conn(ws)
@@ -192,14 +203,16 @@ def run_import(ws, files: dict, marketplace: str | None = None, date_to: date | 
 
 
 # ------------------------------------------------------------------ associazioni
-def associate(ws, amazon_campaign_id, book_id, internal_campaign_id=None, campaign_type=None, marketplace=None, recalc=True, backfill_of=None) -> OpResult:
+def associate(ws, amazon_campaign_id, book_id, internal_campaign_id=None, campaign_type=None, marketplace=None, recalc=True, backfill_of=None, account_id=None,
+              confirm_legacy_account=False) -> OpResult:
     """Associazione CONFERMATA dall'utente. Smista i dati parcheggiati e ricalcola il libro (senza reimport). Una campagna Amazon nuova e' SEMPRE una campagna interna nuova;
     `backfill_of` (id storico) e' accettato solo con prova forte (GS.backfill_candidates livello ALTA)."""
     bk = backup_db(ws, "associa_campagna")
     conn = connect(ws.db_path)
     logger, _ = setup_logger(ws.logs_dir, "global_associate")
     try:
-        r = GS.associate(conn, ws.settings, amazon_campaign_id, book_id, marketplace, internal_campaign_id, campaign_type, backfill_of=backfill_of)
+        r = GS.associate(conn, ws.settings, amazon_campaign_id, book_id, marketplace, internal_campaign_id, campaign_type, backfill_of=backfill_of, account_id=account_id,
+                         confirm_legacy_account=confirm_legacy_account)
         rec = recalculate(ws, r["books"], conn, logger) if recalc and r["books"] else []
         return OpResult(True, [], "Campagna collegata alla campagna storica (backfill)" if backfill_of else "Campagna associata", {**r, "recalc": rec, "backup": str(bk) if bk else None})
     except (GS.GlobalImportError, registry.RegistryError) as e:
@@ -210,7 +223,8 @@ def associate(ws, amazon_campaign_id, book_id, internal_campaign_id=None, campai
 
 
 def associate_many(ws, items: list, recalc=True) -> OpResult:
-    """items = [{amazon_campaign_id, book_id, internal_campaign_id?, campaign_type?, marketplace?}]. Un backup e un ricalcolo per libro; una campagna non valida non blocca le altre."""
+    """items = [{amazon_campaign_id, account_id?, book_id, internal_campaign_id?, campaign_type?, marketplace?}]. Un backup e un ricalcolo per libro; una campagna non valida non blocca
+    le altre. `account_id` identifica la campagna insieme all'ID Amazon (omesso solo se l'ID e' presente in un unico account)."""
     bk = backup_db(ws, "associa_campagne")
     conn = connect(ws.db_path)
     logger, _ = setup_logger(ws.logs_dir, "global_associate")
@@ -219,7 +233,7 @@ def associate_many(ws, items: list, recalc=True) -> OpResult:
         for it in items:
             try:
                 r = GS.associate(conn, ws.settings, it["amazon_campaign_id"], it["book_id"], it.get("marketplace"), it.get("internal_campaign_id"), it.get("campaign_type"),
-                                 backfill_of=it.get("backfill_of"))
+                                 backfill_of=it.get("backfill_of"), account_id=it.get("account_id"), confirm_legacy_account=bool(it.get("confirm_legacy_account")))
                 books |= r["books"]
                 done += 1
             except (GS.GlobalImportError, registry.RegistryError) as e:
@@ -231,10 +245,10 @@ def associate_many(ws, items: list, recalc=True) -> OpResult:
         conn.close()
 
 
-def ignore(ws, amazon_campaign_id) -> OpResult:
+def ignore(ws, amazon_campaign_id, account_id=None) -> OpResult:
     conn = connect(ws.db_path)
     try:
-        GS.ignore(conn, amazon_campaign_id)
+        GS.ignore(conn, amazon_campaign_id, account_id=account_id)
         return OpResult(True, [], "Campagna ignorata (nessun dato cancellato)")
     except GS.GlobalImportError as e:
         return OpResult(False, [str(e)])
@@ -242,10 +256,10 @@ def ignore(ws, amazon_campaign_id) -> OpResult:
         conn.close()
 
 
-def unignore(ws, amazon_campaign_id) -> OpResult:
+def unignore(ws, amazon_campaign_id, account_id=None) -> OpResult:
     conn = connect(ws.db_path)
     try:
-        GS.unignore(conn, amazon_campaign_id)
+        GS.unignore(conn, amazon_campaign_id, account_id=account_id)
         return OpResult(True, [], "Campagna di nuovo da associare")
     except GS.GlobalImportError as e:
         return OpResult(False, [str(e)])
@@ -309,7 +323,11 @@ def create_book_and_associate(ws, form: dict, amazon_campaign_ids: list, recalc=
         return OpResult(False, [f"Scrittura di books.json non riuscita ({e}): il file originale non è stato modificato"])
     if not r.ok:
         return r
-    out = associate_many(ws, [{"amazon_campaign_id": c, "book_id": clean["book_id"], "marketplace": clean["marketplace"]} for c in amazon_campaign_ids], recalc)
+    items = []
+    for c in amazon_campaign_ids:                              # c = ID campagna (str) oppure (ID account, ID campagna)
+        acct, cid = (c[0], c[1]) if isinstance(c, (tuple, list)) else (None, c)
+        items.append({"amazon_campaign_id": cid, "account_id": acct, "book_id": clean["book_id"], "marketplace": clean["marketplace"]})
+    out = associate_many(ws, items, recalc)
     out.data = {**(out.data or {}), "book": r.data}
     out.message = f"Libro creato (pareggio {clean['break_even_acos']:.2f}%) · {out.message}"
     out.ok = True if out.ok or not amazon_campaign_ids else out.ok

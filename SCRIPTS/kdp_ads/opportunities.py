@@ -279,6 +279,12 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
         rec["asin_targeted"] = any(product_asin(x["target"]) == term for x in target_rows)       # esiste gia' un product target per questo ASIN?
         records.append(rec)
 
+    acct_of = {c["campaign_id"]: c.get("amazon_account_id") for c in campaigns if c.get("amazon_account_id")}
+    for r in st_rows:
+        if r.get("amazon_account_id"):
+            acct_of.setdefault(r["campaign_id"], r["amazon_account_id"])
+    for rec in records:
+        rec["amazon_account_id"] = acct_of.get(rec["campaign_id"])        # ogni opportunita' risale al suo account (None = legacy_account_unknown)
     phrase_campaigns = sorted(c["campaign_id"] for c in campaigns if str(c.get("campaign_type") or "").upper() == "PHRASE")
     for rec in records:
         if rec["opportunity_type"] == SUGGEST_PHRASE:
@@ -511,8 +517,9 @@ def load_inputs(conn, book_id, marketplace, legacy_marketplace=None):
         sql, args = clause(table)
         if key == "st_rows":
             have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
-            cols = cols.replace("{extra}", "".join(f", {c}" for c in ("ad_group", "added_as") if c in have))
+            cols = cols.replace("{extra}", "".join(f", {c}" for c in ("ad_group", "added_as", "amazon_account_id") if c in have))
         out[key] = q(f"SELECT {cols} FROM {table} WHERE book_id=?{sql}", (book_id, *args))
     sql, args = clause("campaigns")
-    out["campaigns"] = q(f"SELECT campaign_id, campaign_type FROM campaigns WHERE book_id=?{sql}", (book_id, *args))
+    acc = ", amazon_account_id" if "amazon_account_id" in {r[1] for r in conn.execute("PRAGMA table_info(campaigns)")} else ""
+    out["campaigns"] = q(f"SELECT campaign_id, campaign_type{acc} FROM campaigns WHERE book_id=?{sql}", (book_id, *args))
     return out

@@ -42,8 +42,10 @@ else:
         if not assoc:
             st.caption("Nessuna campagna Amazon associata a questo libro.")
         else:
-            st.markdown(f"**Campagne associate: {len(assoc)}**")
-            st.dataframe([{"ID campagna Amazon": a["amazon_campaign_id"], "Campagna interna": a["campaign_id"], "Nome in Amazon": a["campaign_name_last_seen"],
+            n_acc = len({a["account_id"] for a in assoc})
+            st.markdown(f"**Campagne associate: {len(assoc)}**" + (f" · in {n_acc} account Amazon Ads diversi (elencate separatamente)" if n_acc > 1 else ""))
+            st.dataframe([{"Account": (f"{a.get('account_name_last_seen') or 'senza nome'} · {a['account_id']}" if a.get("account_id") else "account non noto (legacy)"),
+                           "ID campagna Amazon": a["amazon_campaign_id"], "Campagna interna": a["campaign_id"], "Nome in Amazon": a["campaign_name_last_seen"],
                            "Portfolio": a["portfolio_last_seen"] or F.ND, "Tipo": a["campaign_type"], "Marketplace": a["marketplace"], "Stato": a["status"]} for a in assoc],
                          use_container_width=True, hide_index=True)
         try:

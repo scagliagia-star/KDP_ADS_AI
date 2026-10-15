@@ -47,13 +47,24 @@ def main():
         opp = ctx.repo.search_term_opportunities(ctx.book, ctx.marketplace)
     except RepoError:
         opp = None
+    decisions = ctx.decisions
+    names = {d["amazon_account_id"]: d.get("amazon_account_name") for d in decisions if d.get("amazon_account_id") and d.get("amazon_account_name")}
+    present = {d.get("amazon_account_id") for d in decisions}
+    if len(present) >= 2 and any(present):                 # piu' account (o account + campagne legacy senza account): filtro esplicito, mai mescolati in silenzio
+        st.divider()
+        pick = st.selectbox(U.ACCOUNT_FILTER, ["ALL"] + sorted((a for a in present if a), key=str) + ([None] if None in present else []), key="ov_account",
+                            format_func=lambda a: U.ACCOUNT_ALL if a == "ALL" else (U.ACCOUNT_UNKNOWN if a is None else f"{names.get(a) or 'Account senza nome'} · {a}"))
+        if pick != "ALL":
+            decisions = [d for d in decisions if d.get("amazon_account_id") == pick]
+            if opp:
+                opp = {**opp, "records": [r for r in opp["records"] if r.get("amazon_account_id") == pick]}
     warnings = list(ctx.warnings)
     for w in (opp or {}).get("data_warnings", []):             # righe Search Term impossibili rilevate al volo (se il run non le aveva segnalate)
         body = w.replace("DATA_WARNING ", "", 1)
         if not any(body[:60] in (x.get("text") or "") for x in warnings):
             warnings.append({"origin": "opportunità Search Term", "campaign": None, "text": w, "kind": "DATA_WARNING", "severity": "n/d"})
-    ov = O.build_overview(ctx.decisions, b, ctx.summary, warnings, opp, parse_delivery_detail, sym())
-    growth = G.build_growth(ctx.decisions, (opp or {}).get("records", []), b, G.config(ctx.repo.rules()), warnings)
+    ov = O.build_overview(decisions, b, ctx.summary, warnings, opp, parse_delivery_detail, sym(), names)
+    growth = G.build_growth(decisions, (opp or {}).get("records", []), b, G.config(ctx.repo.rules()), warnings)
 
     st.divider()
     st.header(U.OV_KPI_TITLE)

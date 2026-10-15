@@ -20,6 +20,7 @@ try:
 except Exception:                                    # pragma: no cover
     AppTest = None
 
+ACC = "amzn1.ads-account.g.x"                                                       # account dei file sintetici
 P13 = str(ROOT / "DASHBOARD" / "pages" / "13_Report_globali_Amazon_Ads.py")
 P14 = str(ROOT / "DASHBOARD" / "pages" / "14_Campagne_da_associare.py")
 P8 = str(ROOT / "DASHBOARD" / "pages" / "8_Importa_report.py")
@@ -95,13 +96,13 @@ class GlobalPagesTests(tg.WsBase):
         self.assertIn("Suggerimento: **Route 66 Day by Day", t)
         self.assertEqual(GI.counts(self.ws)["ASSIGNED"], 0)                                                 # la pagina da sola non associa nulla
         cid = "555000111222333"
-        [b for b in at.button if b.key == f"ca_go_{cid}"][0].click().run()
+        [b for b in at.button if b.key == f"ca_go_{ACC}_{cid}"][0].click().run()
         self.assertFalse(at.exception, at.exception)
         self.assertEqual(GI.counts(self.ws), {"UNASSIGNED": 3, "ASSIGNED": 1, "IGNORED": 0})
         m = self.q("SELECT status, book_id FROM campaign_book_mapping WHERE amazon_campaign_id=?", cid)[0]
         self.assertEqual((m["status"], m["book_id"]), ("ASSIGNED", tg.BOOK_B))                              # il libro suggerito era quello giusto
         at = AppTest.from_file(P14, default_timeout=120).run()
-        [b for b in at.button if b.key == "ca_ig_176948463003177"][0].click().run()
+        [b for b in at.button if b.key == f"ca_ig_{ACC}_176948463003177"][0].click().run()
         self.assertEqual(GI.counts(self.ws), {"UNASSIGNED": 2, "ASSIGNED": 1, "IGNORED": 1})
         at = AppTest.from_file(P14, default_timeout=120).run()
         self.assertFalse(at.exception, at.exception)
@@ -113,10 +114,10 @@ class GlobalPagesTests(tg.WsBase):
         from ops import global_import as GI
         GI.run_import(self.ws, {"TARGETING_30D": ("t30.csv", tg.targeting_30())}, recalc=False)
         at = AppTest.from_file(P14, default_timeout=120).run()
-        go = [b for b in at.button if b.key == "ca_pfgo_ROUTE 66"][0]
+        go = [b for b in at.button if b.key == f"ca_pfgo_{ACC}_ROUTE 66"][0]
         self.assertTrue(go.disabled)                                                                         # senza la conferma il pulsante e' spento
-        at.checkbox(key="ca_pfok_ROUTE 66").check().run()
-        [b for b in at.button if b.key == "ca_pfgo_ROUTE 66"][0].click().run()
+        at.checkbox(key=f"ca_pfok_{ACC}_ROUTE 66").check().run()
+        [b for b in at.button if b.key == f"ca_pfgo_{ACC}_ROUTE 66"][0].click().run()
         self.assertFalse(at.exception, at.exception)
         self.assertEqual(GI.counts(self.ws)["ASSIGNED"], 3)                                                  # le 3 campagne del portfolio ROUTE 66, non quella di Rare Coins
         self.assertEqual(GI.counts(self.ws)["UNASSIGNED"], 1)
@@ -178,7 +179,9 @@ class GlobalPagesTests(tg.WsBase):
         self.assertIn("Mai per solo tipo o nome", t)
         self.assertNotIn("storico esistente", t)                                                              # nessuna opzione di fusione nel flusso normale
         self.assertEqual(GI.counts(self.ws)["ASSIGNED"], 0)
-        [b for b in at.button if b.key == "ca_bf_176948463003177"][0].click().run()
+        self.assertTrue([b for b in at.button if b.key == f"ca_bf_{ACC}_176948463003177"][0].disabled)             # legacy senza account: serve la conferma esplicita
+        at.checkbox(key=f"ca_bfok_{ACC}_176948463003177").check().run()
+        [b for b in at.button if b.key == f"ca_bf_{ACC}_176948463003177"][0].click().run()
         self.assertFalse(at.exception, at.exception)
         self.assertEqual(self.q("SELECT campaign_id FROM campaign_book_mapping WHERE amazon_campaign_id='176948463003177'")[0]["campaign_id"], "FRASE")
 

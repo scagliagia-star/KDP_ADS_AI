@@ -193,7 +193,7 @@ def parse_global_report(name: str, data: bytes) -> dict:
             "portfolio_name": (g("portfolio_name") if pid not in (None, "-1") else "") or None, "ad_group_id": clean_id(g("ad_group_id")),
             "ad_group_name": g("ad_group_name") or None, "target_id": clean_id(g("target_id")), "targeting": g("targeting") or None,
             "match_type_raw": mt_raw or None, "match_type": MATCH_IT.get(mt_raw.upper(), mt_raw), "search_term": (term or None) if rtype == "SEARCH_TERM" else None,
-            "empty_search_term": bool(rtype == "SEARCH_TERM" and not (term or "").strip()), "row_from": rf, "row_to": rt, "account_id": clean_id(g("account_id")),
+            "empty_search_term": bool(rtype == "SEARCH_TERM" and not (term or "").strip()), "row_from": rf, "row_to": rt, "account_id": clean_id(g("account_id")), "account_name": g("account_name") or None,
             "bid": num(g("bid")), "target_state": g("target_state") or None, "target_kind": g("target_kind") or None,
             "impressions": num(g("impressions")), "clicks": num(g("clicks")), "spend": num(g("spend")), "orders": num(g("orders")), "sales": num(g("sales")),
             "units": num(g("units")),
@@ -220,10 +220,20 @@ def parse_global_report(name: str, data: bytes) -> dict:
     if dups:
         warnings.append(f"{dups} righe con la stessa chiave (campagna, ad group, target, termine, intervallo): conservate, non sommate")
     cur = sorted(c for c in currencies if c)
+    # ACCOUNT ADS: ogni report Amazon appartiene a UN solo account (ID account inserzionista). L'account e' parte dell'identita' operativa: lo si espone qui per
+    # anteprima e import; piu' account nello stesso file e' un errore (decisione presa in globalstore), nessun account e' un file non attribuibile.
+    acc_ids = sorted({r_["account_id"] for r_ in rows if r_["account_id"]})
+    acc_names = {}
+    for r_ in rows:
+        if r_["account_id"] and r_["account_name"]:
+            acc_names.setdefault(r_["account_id"], r_["account_name"])
+    rows_without_account = sum(1 for r_ in rows if not r_["account_id"])
     ends = [r_["row_to"] for r_ in rows if r_["row_to"]]
     starts = [r_["row_from"] for r_ in rows if r_["row_from"]]
     return {"file_name": str(name), "sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "report_type": rtype,
             "currency": cur[0] if len(cur) == 1 else None, "currencies": cur, "marketplace_hint": CURRENCY_MARKETPLACE.get(cur[0]) if len(cur) == 1 else None,
+            "account_ids": acc_ids, "account_id": acc_ids[0] if len(acc_ids) == 1 else None, "account_names": acc_names,
+            "account_name": acc_names.get(acc_ids[0]) if len(acc_ids) == 1 else None, "rows_without_account": rows_without_account,
             "rows": rows, "columns": cols, "unmapped": [c["header"] for c in cols if not c["canonical"]], "row_count": len(rows),
             "date_min": min(starts).isoformat() if starts else None, "date_max": max(ends).isoformat() if ends else None, "range_counts": range_counts,
             "empty_search_term_rows": sum(1 for r_ in rows if r_["empty_search_term"]), "warnings": warnings, "parser_version": PARSER_VERSION}
@@ -235,7 +245,7 @@ def campaign_summary(rows: list) -> dict:
     for r in rows:
         c = out.setdefault(r["campaign_id"], {"campaign_id": r["campaign_id"], "name": r["campaign_name"], "portfolio_id": r["portfolio_id"], "portfolio_name": r["portfolio_name"],
                                               "ad_groups": set(), "first": None, "last": None, "impressions": 0.0, "clicks": 0.0, "spend": 0.0, "orders": 0.0, "sales": 0.0,
-                                              "matches": {}, "rows": 0, "targets": set(), "account_id": r.get("account_id")})
+                                              "matches": {}, "rows": 0, "targets": set(), "account_id": r.get("account_id"), "account_name": r.get("account_name")})
         if r["ad_group_name"]:
             c["ad_groups"].add(r["ad_group_name"])
         if r["targeting"]:
