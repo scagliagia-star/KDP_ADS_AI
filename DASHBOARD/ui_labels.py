@@ -25,6 +25,8 @@ NAV_PAGES = [
     ("pages/10_Lancio_nuovo_libro.py", "Lancio nuovo libro"),
     ("pages/12_Ricerca_competitor.py", "Ricerca competitor"),
     ("pages/7_Gestione_libri.py", "Gestione libri"),
+    ("pages/13_Report_globali_Amazon_Ads.py", "Report globali Amazon Ads"),
+    ("pages/14_Campagne_da_associare.py", "Campagne da associare"),
     ("pages/8_Importa_report.py", "Importa report"),
 ]
 SIDEBAR_SELECTION = "Selezione"
@@ -244,6 +246,23 @@ OPP_FLAG_LABELS = {"AUTO_STRONG_WINNER": "Vincitore AUTO forte", "AUTO_MODERATE_
                    "NEGATIVE_CONFLICT": "Conflitto con negativa", "NEGATIVE_EXACT_ONLY": "Solo negativa esatta (stessa query del target)", "PROMOTED_TO_EXACT": "Promossa in EXACT",
                    "PROMOTED_EXACT_PAUSED": "Promossa in EXACT (target in pausa)", "PRODUCT_TARGET": "Target prodotto"}
 OPP_NEGATIVE_TYPE_NOTE = "Il tipo di negativa (exact o phrase) non è deciso."
+# ------------------------------------------------------------------ Report globali Amazon Ads (4 CSV -> smistamento per libro)
+GLOBAL_PAGE_TITLE = "Report globali Amazon Ads"
+GLOBAL_INTRO = ("**Nuovo flusso consigliato.** Carica soltanto 4 report globali di Amazon Ads: Targeting 7D, Targeting 30D, Search Term 7D, Search Term 30D. Ogni file contiene "
+                "molte campagne e molti libri: l'app riconosce le campagne dall'ID Amazon e smista i dati per libro. Le campagne nuove non bloccano l'import: restano in "
+                "«Campagne da associare».")
+GLOBAL_NO_ACTIONS = ("Solo analisi e supporto alle decisioni: nessuna azione viene eseguita su Amazon Ads (bid, pause, keyword e negative restano modifiche manuali).")
+GLOBAL_LEGACY_LINK = "Import legacy (un file per campagna): vai a «Importa report»"
+GLOBAL_SLOTS_HEADER = "REPORT GLOBALI AMAZON ADS"
+GLOBAL_PREVIEW_HEADER = "Anteprima (nessuna scrittura nel database)"
+GLOBAL_PREVIEW_NOTE = "Controlla l'anteprima: solo dopo la conferma con «IMPORTA» i dati vengono scritti. Lo stesso file importato due volte non duplica nulla."
+GLOBAL_RESULT_HEADER = "Esito dell'import"
+GLOBAL_MP_AUTO = "Automatico (dalla valuta del report)"
+ASSOC_PAGE_TITLE = "Campagne da associare"
+ASSOC_INTRO = ("Campagne Amazon (riconosciute dall'ID, non dal nome) non ancora collegate a un libro. Non sono errori critici né azioni Ads: è configurazione dei dati. "
+               "I suggerimenti sono solo proposte; l'associazione diventa definitiva con la tua conferma.")
+ASSOC_CARD = "campagne nuove non ancora associate"
+
 # ------------------------------------------------------------------ trend 7D (overlay temporale Lifetime + 30D + 7D)
 TREND_LABELS = {"STABLE": "STABILE", "CONFIRMED_DECLINE": "PEGGIORAMENTO CONFERMATO", "RECENT_RECOVERY": "RECUPERO RECENTE",
                 "WATCH_RECENT": "MONITORA — DATI 7D LIMITATI", "INSUFFICIENT_7D": "MONITORA — DATI 7D LIMITATI", "NO_TRAFFIC_7D": "NESSUN TRAFFICO 7D",

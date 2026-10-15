@@ -1,5 +1,5 @@
 """RICERCA COMPETITOR: persistenza locale (SQLite) dei progetti di ricerca Helium 10 Cerebro. Tabelle NUOVE e ADDITIVE (CREATE TABLE IF NOT EXISTS): nessuna
-tabella esistente viene toccata, quindi compatibile col DB attuale senza cambiare SCHEMA_VERSION. Nessuna rete. Non scrive mai books.json, INPUT o le tabelle
+tabella esistente viene toccata, quindi compatibile col DB attuale (SCHEMA_VERSION 6 = v5 + tabelle/colonne additive, vedi db._upgrade). Nessuna rete. Non scrive mai books.json, INPUT o le tabelle
 dei report Amazon Ads (target_rows, search_term_rows, decisions, ...): le legge soltanto, per il confronto (gap).
 
 Tabelle:

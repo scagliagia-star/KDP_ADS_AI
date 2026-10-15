@@ -24,7 +24,7 @@ from data_access.context import load_context  # noqa: E402
 from data_access.repository import Repo  # noqa: E402
 from kdp_ads import registry  # noqa: E402
 from kdp_ads.analysis import analyze_book  # noqa: E402
-from kdp_ads.db import connect  # noqa: E402
+from kdp_ads.db import SCHEMA_VERSION, connect  # noqa: E402
 from kdp_ads.decision import build_decisions  # noqa: E402
 from kdp_ads.importer import import_all  # noqa: E402
 from kdp_ads.logs import setup_logger  # noqa: E402
@@ -588,9 +588,9 @@ class MigrationBackupTests(unittest.TestCase):
             connect(p).close()
             files = sorted((Path(d) / "backups").glob("*"))
             self.assertEqual(len(files), 1)
-            self.assertRegex(files[0].name, r"^kdp_ads_pre_schema_v5_\d{8}_\d{6}\.db$")
+            self.assertRegex(files[0].name, rf"^kdp_ads_pre_schema_v{SCHEMA_VERSION}_\d{{8}}_\d{{6}}\.db$")
             self.assertEqual(self._ver(files[0]), 3)                                    # copia PRE migrazione
-            connect(p).close()                                                           # gia' v5: nessun nuovo backup
+            connect(p).close()                                                           # gia' alla versione corrente: nessun nuovo backup
             self.assertEqual(len(list((Path(d) / "backups").glob("*"))), 1)
 
     def test_same_second_never_overwrites(self):
@@ -608,7 +608,7 @@ class MigrationBackupTests(unittest.TestCase):
                 c.close()
             self.assertNotEqual(a, b)
             self.assertTrue(a.is_file() and b.is_file())
-            self.assertEqual(a.name, "kdp_ads_pre_schema_v5_20260102_030405.db")
+            self.assertEqual(a.name, f"kdp_ads_pre_schema_v{SCHEMA_VERSION}_20260102_030405.db")
 
     def test_memory_db_has_no_backup(self):
         connect(":memory:").close()
@@ -645,6 +645,7 @@ class PilotBookTests(unittest.TestCase):
                     cols = [r[1] for r in c.execute(f"PRAGMA table_info({t})") if r[1] not in ("marketplace",) or t in ("imports", "target_rows", "search_term_rows", "campaigns", "books")]
                     cols = [x for x in cols if x not in ("period_id", "snapshot_id")] if t in ("imports", "target_rows", "search_term_rows") else cols
                     cols = [x for x in cols if not (t == "imports" and x == "warnings_json")]          # colonna nuova (avvisi strutturati), NULL sui vecchi
+                    cols = [x for x in cols if not (t in ("target_rows", "search_term_rows") and (x.startswith("amazon_") or x in ("row_date_from", "row_date_to")))]   # tracciabilita' report globali (nullable)
                     cols = [x for x in cols if not (t == "decisions" and x.startswith("trend_"))]      # colonne nuove del trend 7D (nullable, NULL sulle decisioni storiche)
                     rows = c.execute(f"SELECT {','.join(cols)} FROM {t} ORDER BY 1,2").fetchall() if cols else []
                     out[t] = (len(rows), hashlib.sha256(json.dumps(rows, default=str).encode()).hexdigest())
@@ -657,11 +658,11 @@ class PilotBookTests(unittest.TestCase):
             c.close()
             before = snapshot(copy)
             connect(copy).close()                                                              # migrazione schema v5 sulla copia
-            backups = list((Path(tmp) / "backups").glob("kdp_ads_pre_schema_v5_*.db"))
+            backups = list((Path(tmp) / "backups").glob(f"kdp_ads_pre_schema_v{SCHEMA_VERSION}_*.db"))
             self.assertEqual(len(backups), 1)                                                  # backup automatico, una sola volta
             self.assertEqual(snapshot(backups[0]), before)                                     # il backup e' la copia pre-migrazione
             print("BACKUP:", backups[0].name, "| righe prima/dopo:", {k: v[0] for k, v in before.items()})
-            self.assertEqual(MigrationBackupTests._ver(copy), 5)
+            self.assertEqual(MigrationBackupTests._ver(copy), SCHEMA_VERSION)
             c = sqlite3.connect(copy)
             try:
                 self.assertIn("UNIQUE (book_id, campaign_id, report_type, period_id, file_sha256)",

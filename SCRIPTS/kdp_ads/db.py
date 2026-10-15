@@ -6,9 +6,9 @@ from pathlib import Path
 
 from .decfields import DEC_FIELDS, STATUSES
 from .recfields import REC_FIELDS
-from . import competitor_store
+from . import competitor_store, globalstore
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Colonne di contesto presenti in imports e in ogni riga dati (denormalizzate per filtrare senza JOIN).
 _CTX = """
@@ -142,6 +142,7 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     _upgrade(conn)
     conn.executescript(SCHEMA)
+    globalstore.ensure_schema(conn)                                         # Report globali Amazon Ads: tabelle NUOVE + colonne di tracciabilita' (additive)
     competitor_store.ensure_schema(conn)                                    # Ricerca competitor (Cerebro): tabelle NUOVE e additive, nessuna esistente toccata
     _ensure_columns(conn, "recommendations", REC_FIELDS)     # colonne aggiunte dopo (nullable, righe storiche = NULL)
     _ensure_columns(conn, "decisions", DEC_FIELDS)
@@ -227,6 +228,9 @@ def _upgrade(conn):
     v2 -> v3 (period snapshot): aggiunge period_id/snapshot_id e li ricalcola dai dati esistenti, SENZA perdere dati.
     v3 -> v4 (multi-marketplace): colonne/tabella nuove, nessuna riga toccata.
     v4 -> v5 (deduplica per snapshot): ricopia imports con UNIQUE (libro, campagna, tipo, periodo, hash), nessuna riga persa.
+    v5 -> v6 (SOLO additiva): tabelle nuove (competitor_*, global_report_imports, global_report_rows, campaign_book_mapping) e colonne nullable di tracciabilita'
+    amazon_campaign_id / amazon_ad_group_id / amazon_target_id / row_date_from / row_date_to su target_rows e search_term_rows. Nessun DROP, nessuna riga toccata:
+    qui si fa solo il backup e si alza user_version; tabelle e colonne le crea (idempotente) connect() con CREATE ... IF NOT EXISTS / ALTER ... ADD COLUMN.
     Prima di OGNI migrazione di un DB esistente si crea un backup (una volta sola: a schema aggiornato non si ripete)."""
     ver = conn.execute("PRAGMA user_version").fetchone()[0]
     if ver >= SCHEMA_VERSION:

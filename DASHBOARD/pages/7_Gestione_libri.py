@@ -13,6 +13,7 @@ import ui_labels as U  # noqa: E402
 from components import ops_ui  # noqa: E402
 from kdp_ads import registry  # noqa: E402
 from ops import catalog, workspace  # noqa: E402
+from ops import global_import as GI  # noqa: E402
 
 ws = workspace.current()
 S = st.session_state
@@ -21,6 +22,7 @@ ops_ui.setup(st, "Gestione libri")
 # ---------------------------------------------------------------- A. elenco libri (una riga per libro e marketplace)
 st.subheader("Libri esistenti")
 books = catalog.list_books(ws)
+n_assoc = GI.book_campaign_counts(ws)                   # campagne Amazon (ID) associate a ciascun libro dai report globali
 if not books:
     st.info("Nessun libro registrato: aggiungine uno qui sotto.")
 else:
@@ -31,8 +33,23 @@ else:
                          "Valuta": m.get("currency") or F.ND, "Prezzo": F.money(m.get("price")) if m else F.ND,
                          "Royalty per copia": F.money(m.get("royalty_per_copy")) if m else F.ND,
                          "ACOS obiettivo": F.pct(m.get("target_acos")), "ACOS di pareggio": F.pct(m.get("break_even_acos")),
-                         "Fase": m.get("phase") or F.ND, "Campagne registrate": m.get("campaigns", 0)})
+                         "Fase": m.get("phase") or F.ND, "Campagne registrate": m.get("campaigns", 0),
+                         "Campagne Amazon associate": n_assoc.get(b["book_id"], 0)})
     st.dataframe(rows, use_container_width=True, hide_index=True)
+    with st.expander("Gestisci campagne associate (report globali Amazon Ads)"):
+        pick = st.selectbox("Libro", [b["book_id"] for b in books], format_func=lambda x: next((f"{b['title']} · {x}" for b in books if b["book_id"] == x), x), key="gl_camp_book")
+        assoc = GI.book_campaigns(ws, pick)
+        if not assoc:
+            st.caption("Nessuna campagna Amazon associata a questo libro.")
+        else:
+            st.markdown(f"**Campagne associate: {len(assoc)}**")
+            st.dataframe([{"ID campagna Amazon": a["amazon_campaign_id"], "Campagna interna": a["campaign_id"], "Nome in Amazon": a["campaign_name_last_seen"],
+                           "Portfolio": a["portfolio_last_seen"] or F.ND, "Tipo": a["campaign_type"], "Marketplace": a["marketplace"], "Stato": a["status"]} for a in assoc],
+                         use_container_width=True, hide_index=True)
+        try:
+            st.page_link("pages/14_Campagne_da_associare.py", label="Vai a «Campagne da associare»")
+        except Exception:
+            st.caption("Apri «Campagne da associare» dal menu.")
     st.caption("Ogni marketplace ha economia e campagne separate: i dati di marketplace diversi non vengono mai sommati né confrontati, "
                "e non c'è nessuna conversione di valuta.")
 

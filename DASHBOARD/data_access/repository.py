@@ -256,6 +256,18 @@ class Repo:
         ctx = make_ctx({**book, "marketplace": marketplace}, load_rules(rules_path))
         return compute_opportunities(data["st_rows"], data["target_rows"], data["campaigns"], ctx, map_target_status)
 
+    def global_counts(self) -> dict:
+        """Campagne dei report globali per stato (UNASSIGNED / ASSIGNED / IGNORED). DB o tabelle assenti => zeri. Sola lettura."""
+        out = {"UNASSIGNED": 0, "ASSIGNED": 0, "IGNORED": 0}
+        try:
+            if "campaign_book_mapping" not in self._tables():
+                return out
+            for r in self._query("SELECT status, COUNT(*) AS n FROM campaign_book_mapping GROUP BY status"):
+                out[r["status"]] = r["n"]
+        except RepoError:
+            pass
+        return out
+
     # ------------------------------------------------------------ ricerca competitor (Helium 10, fonte ESTERNA; sola lettura)
     def competitor_research(self, book, marketplace, opportunity_records=None) -> dict:
         """Sezione DA RICERCA COMPETITOR per i Suggerimenti di crescita: keyword Cerebro da testare in FRASE e ASIN competitor non ancora target prodotto,

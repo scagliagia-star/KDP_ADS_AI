@@ -48,7 +48,7 @@ HOLD_PAUSED = "HOLD_PAUSED_TARGET"
 PAUSED_BLOCKED = frozenset(list(STEP_OF) + ["BID_UP_5_CANDIDATE", "BID_UP_10_CANDIDATE", REVIEW])
 OPERATIONAL_ACTIONS = frozenset(list(STEP_OF) + [REVIEW, "NEGATIVE_CANDIDATE"])
 # mappatura ESPLICITA dello stato del Target report (prima colonna 'Stato'); nessun altro valore viene dedotto
-TARGET_STATUS_MAP = {"ABILITATO": "ENABLED", "IN PAUSA": "PAUSED"}
+TARGET_STATUS_MAP = {"ABILITATO": "ENABLED", "IN PAUSA": "PAUSED", "ENABLED": "ENABLED", "PAUSED": "PAUSED"}
 
 
 def bid_txt(row) -> str:
@@ -99,7 +99,7 @@ def map_target_status(raw_json) -> str:
         raw = json.loads(raw_json) if raw_json else {}
     except (TypeError, ValueError):
         return "UNKNOWN"
-    return TARGET_STATUS_MAP.get(str(raw.get("Stato") or "").strip().upper(), "UNKNOWN")
+    raw_state = raw.get("Stato") or raw.get("Stato del target")             # report legacy: "Stato"; report globali Amazon: "Stato del target"
     return TARGET_STATUS_MAP.get(str(raw_state or "").strip().upper(), "UNKNOWN")
 
 
@@ -322,14 +322,22 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
         bid_of[k] = t
     cross = _cross_index(analyze_overlaps_by_period(srows, ctx), ctx)
     # stato operativo del target: Target LIFETIME piu' recente disponibile (nessun lifetime -> UNKNOWN)
-    status_of, _st_key = {}, {}
+    status_of, _st_key, win_status, _win_key = {}, {}, {}, {}
     for t in trows:
-        if t["report_scope"] != "LIFETIME":
-            continue
         k = (t["campaign_id"], amz.target_identity(t["target"]))
+        if t["report_scope"] != "LIFETIME":
+            # report globali Amazon (nessun lifetime): lo stato e' nella colonna "Stato del target" del report a finestra piu' recente (30D prima del 7D). I report
+            # legacy a finestra NON entrano qui: il comportamento storico (stato dal solo lifetime) resta identico.
+            if "Stato del target" in str(t.get("raw_json") or ""):
+                wkey = (t["date_to"] or "", days_inclusive(t["date_from"], t["date_to"]) or 0, t["id"])
+                if k not in _win_key or wkey > _win_key[k]:
+                    _win_key[k], win_status[k] = wkey, map_target_status(t.get("raw_json"))
+            continue
         key = (t["date_to"] or "", t["id"])
         if k not in _st_key or key > _st_key[k]:
             _st_key[k], status_of[k] = key, map_target_status(t.get("raw_json"))
+    for k, v in win_status.items():
+        status_of.setdefault(k, v)
 
     # ---- raggruppamento in entita'
     ents: dict[str, Entity] = {}

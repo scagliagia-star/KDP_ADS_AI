@@ -20,6 +20,13 @@ GUIDED, WEEKLY = "Importazione guidata", "Importazione settimanale"
 ws = workspace.current()
 S = st.session_state
 ops_ui.setup(st, "Importa report")
+st.success("**NUOVO FLUSSO CONSIGLIATO — Report globali Amazon Ads:** carica solo 4 file (Targeting 7D/30D, Search Term 7D/30D) con tutte le campagne di tutti i libri; "
+           "l'app li smista da sola. Questa pagina è l'**IMPORT LEGACY** (un file per campagna), mantenuto per compatibilità.")
+try:
+    st.page_link("pages/13_Report_globali_Amazon_Ads.py", label="Apri «Report globali Amazon Ads» (consigliato)")
+except Exception:
+    st.caption("Apri «Report globali Amazon Ads» dal menu a sinistra.")
+st.subheader("IMPORT LEGACY (un file per campagna)")
 
 books = catalog.list_books(ws)
 if not books:

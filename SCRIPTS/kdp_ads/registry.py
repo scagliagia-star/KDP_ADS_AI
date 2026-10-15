@@ -23,6 +23,28 @@ class DuplicateError(RegistryError):
     pass
 
 
+def _atomic_write_text(path, text: str) -> None:
+    """Scrive `text` in `path` in modo ATOMICO: file temporaneo nella stessa cartella + os.replace. Se qualcosa fallisce il file originale resta intatto
+    e il temporaneo viene rimosso (mai un books.json troncato o corrotto)."""
+    import os
+    import tempfile
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def break_even_calc(price: float, royalty: float) -> float:
     return round(royalty / price * 100, 2)
 
@@ -130,7 +152,7 @@ def validate_marketplace_entry(m: dict) -> list[str]:
 def _save_books(path, data):
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _atomic_write_text(p, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def add_book_shell(books_path, input_dir, book_id: str, title: str) -> dict:
@@ -261,7 +283,7 @@ def add_book(books_path, input_dir, book: dict) -> dict:
     data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {"books": []}
     data.setdefault("books", []).append(book)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _atomic_write_text(p, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     (Path(input_dir) / book["book_id"]).mkdir(parents=True, exist_ok=True)
     return book
 

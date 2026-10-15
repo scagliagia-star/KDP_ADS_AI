@@ -17,6 +17,14 @@ def main():
     ctx = cards.page_setup(st, U.APP_TITLE, lambda: sidebar.select_context(st))
     st.caption(U.APP_SUBTITLE)
     b, run, an = ctx.book, ctx.run, ctx.analysis
+    n_new = ctx.repo.global_counts().get("UNASSIGNED", 0) if hasattr(ctx.repo, "global_counts") else 0
+    if n_new:                                              # problema di configurazione dei dati, NON un'azione Ads: card separata dalle decisioni
+        with st.container(border=True):
+            st.markdown(f"⚠ **{n_new} {U.ASSOC_CARD}**")
+            try:
+                st.page_link("pages/14_Campagne_da_associare.py", label="ASSOCIA ORA")
+            except Exception:
+                st.caption("Apri «Campagne da associare» dal menu.")
 
     st.markdown(f"#### {b.get('title') or '(senza titolo)'} · `{b['book_id']}`")
     st.markdown(f"**Marketplace: {ctx.marketplace or F.ND} · {b.get('currency') or F.ND}**")
