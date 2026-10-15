@@ -645,6 +645,7 @@ class PilotBookTests(unittest.TestCase):
                     cols = [r[1] for r in c.execute(f"PRAGMA table_info({t})") if r[1] not in ("marketplace",) or t in ("imports", "target_rows", "search_term_rows", "campaigns", "books")]
                     cols = [x for x in cols if x not in ("period_id", "snapshot_id")] if t in ("imports", "target_rows", "search_term_rows") else cols
                     cols = [x for x in cols if not (t == "imports" and x == "warnings_json")]          # colonna nuova (avvisi strutturati), NULL sui vecchi
+                    cols = [x for x in cols if not (t == "decisions" and x.startswith("trend_"))]      # colonne nuove del trend 7D (nullable, NULL sulle decisioni storiche)
                     rows = c.execute(f"SELECT {','.join(cols)} FROM {t} ORDER BY 1,2").fetchall() if cols else []
                     out[t] = (len(rows), hashlib.sha256(json.dumps(rows, default=str).encode()).hexdigest())
                 c.close()

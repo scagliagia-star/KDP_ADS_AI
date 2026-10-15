@@ -237,7 +237,7 @@ class PeriodStateTests(DedupBase):
         self.run_flow("D30", "2026-09-02__2026-10-01")
 
     def test_period_choices_offer_30d_not_28d(self):
-        self.assertEqual([o for o in self.at.selectbox(key="imp_period").options], ["Storico completo (LIFETIME)", "Ultimi 65 giorni", "Ultimi 30 giorni", "Intervallo personalizzato"])
+        self.assertEqual([o for o in self.at.selectbox(key="imp_period").options], ["Storico completo (LIFETIME)", "Ultimi 65 giorni", "Ultimi 30 giorni", "Ultimi 7 giorni (solo trend)", "Intervallo personalizzato"])
 
     def test_weekly_prefill_then_manual_lifetime(self):
         at = self.at

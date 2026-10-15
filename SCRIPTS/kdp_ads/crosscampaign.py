@@ -33,8 +33,13 @@ def build_signals(target_rows: list[dict], st_rows: list[dict], ctx: BookCtx) ->
     for t in target_rows:
         if t["report_scope"] == "LIFETIME":
             life[(t["campaign_id"], normalize_term(t["target"]))].append(t)
-    recents = [("S", s) for s in st_rows if term_matches_target(s["search_term"], s["target"], s.get("campaign_type"))]
-    recents += [("T", t) for t in target_rows if t["report_scope"] == "DATE_RANGE"]
+    short_max = ctx.rules.get("snapshots", {}).get("short_trend_max_days", 10)
+
+    def _short(r):                       # finestre 7D (SHORT_TREND): overlay di trend, non entrano nel segnale recente-vs-storico
+        n = days_inclusive(r.get("date_from"), r.get("date_to")) if r.get("report_scope") == "DATE_RANGE" else None
+        return bool(n and n <= short_max)
+    recents = [("S", s) for s in st_rows if term_matches_target(s["search_term"], s["target"], s.get("campaign_type")) and not _short(s)]
+    recents += [("T", t) for t in target_rows if t["report_scope"] == "DATE_RANGE" and not _short(t)]
     res, latest_for_life = {}, {}
     for kind, r in recents:
         key = (r["campaign_id"], normalize_term(r["target"]))

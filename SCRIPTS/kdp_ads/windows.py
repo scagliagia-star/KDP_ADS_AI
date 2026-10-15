@@ -34,7 +34,8 @@ def campaign_context(recs: list[dict], snap_cfg: dict) -> dict:
     out = {}
     for r in recs:
         c = out.setdefault(r["campaign_id"], {"snaps": {rt: {} for rt in RT_ORDER}, "comparable": set(),
-                                             "latest_comparable": None, "tactical_pid": None, "tactical_comparable": False})
+                                             "latest_comparable": None, "tactical_pid": None, "tactical_comparable": False,
+                                             "trend_pid": None, "trend_st_pid": None})
         pid = rec_period(r)
         c["snaps"][r["report_type"]][pid] = {"date_from": r["date_from"], "date_to": r["date_to"], "scope": r["report_scope"],
                                              "days": rec_days(r),
@@ -43,8 +44,11 @@ def campaign_context(recs: list[dict], snap_cfg: dict) -> dict:
     def latest(pids, snaps):
         return max(pids, key=lambda p: (snaps[p]["date_to"] or "", -(snaps[p]["days"] or 10 ** 6)), default=None)
     for c in out.values():
-        t = {p: i for p, i in c["snaps"]["TARGETING"].items() if i["scope"] == "DATE_RANGE"}
-        s = {p: i for p, i in c["snaps"]["SEARCH_TERM"].items() if i["scope"] == "DATE_RANGE"}
+        t = {p: i for p, i in c["snaps"]["TARGETING"].items() if i["scope"] == "DATE_RANGE" and i["role"] != "SHORT_TREND"}
+        s = {p: i for p, i in c["snaps"]["SEARCH_TERM"].items() if i["scope"] == "DATE_RANGE" and i["role"] != "SHORT_TREND"}
+        # snapshot 7D (SHORT_TREND): mai periodo tattico/comparabile; servono solo all'overlay di trend
+        c["trend_pid"] = latest([p for p, i in c["snaps"]["TARGETING"].items() if i["role"] == "SHORT_TREND"], c["snaps"]["TARGETING"])
+        c["trend_st_pid"] = latest([p for p, i in c["snaps"]["SEARCH_TERM"].items() if i["role"] == "SHORT_TREND"], c["snaps"]["SEARCH_TERM"])
         c["comparable"] = set(t) & set(s)
         c["latest_comparable"] = latest(c["comparable"], t)
         if c["latest_comparable"]:

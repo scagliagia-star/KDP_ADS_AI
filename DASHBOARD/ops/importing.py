@@ -19,7 +19,7 @@ from . import ValidationError
 from .backup import backup_db
 
 REPORT_TYPES = {"TARGETING": "Target", "SEARCH_TERM": "Search Term"}
-PERIOD_KINDS = {"LIFETIME": "Storico completo (LIFETIME)", "D65": "Ultimi 65 giorni", "D30": "Ultimi 30 giorni",
+PERIOD_KINDS = {"LIFETIME": "Storico completo (LIFETIME)", "D65": "Ultimi 65 giorni", "D30": "Ultimi 30 giorni", "D7": "Ultimi 7 giorni (solo trend)",
                 "CUSTOM": "Intervallo personalizzato"}
 LEGACY_KINDS = {"D28": "Ultimi 28 giorni (storico, non piu' proposto)"}      # solo compatibilita': snapshot 28D gia' esistenti
 _SAFE = re.compile(r"[^A-Za-z0-9._() \-]")
@@ -64,8 +64,8 @@ def resolve_period(kind, date_from=None, date_to=None) -> Period:
     to = _d(date_to, "Data di fine")
     if kind == "LIFETIME":
         return Period("LIFETIME", None, to.isoformat())
-    if kind in ("D65", "D30", "D28"):
-        n = {"D65": 65, "D30": 30, "D28": 28}[kind]
+    if kind in ("D65", "D30", "D28", "D7"):
+        n = {"D65": 65, "D30": 30, "D28": 28, "D7": 7}[kind]
         return Period("DATE_RANGE", (to - timedelta(days=n - 1)).isoformat(), to.isoformat())
     if date_from in (None, ""):
         raise ValidationError("Data di inizio: campo obbligatorio")

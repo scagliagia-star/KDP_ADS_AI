@@ -34,6 +34,7 @@ from .metrics import Metrics, compute_metrics, normalize_term, product_asin, pro
 from .rules import CONF_ORDER, ctx_from_book, load_rules, priority
 from . import windows as win
 from .snapshots import days_inclusive, period_id as make_period_id, window_label, window_role
+from . import trend as TR
 
 STEP_OF = {"BID_DOWN_5_CANDIDATE": 5, "BID_DOWN_10_CANDIDATE": 10, "BID_DOWN_15_CANDIDATE": 15, "PAUSE_CANDIDATE": 100}
 ACTION_OF = {5: "BID_DOWN_5_CANDIDATE", 10: "BID_DOWN_10_CANDIDATE", 15: "BID_DOWN_15_CANDIDATE", 100: "PAUSE_CANDIDATE"}
@@ -99,6 +100,7 @@ def map_target_status(raw_json) -> str:
     except (TypeError, ValueError):
         return "UNKNOWN"
     return TARGET_STATUS_MAP.get(str(raw.get("Stato") or "").strip().upper(), "UNKNOWN")
+    return TARGET_STATUS_MAP.get(str(raw_state or "").strip().upper(), "UNKNOWN")
 
 
 def delivery_source_of(eff_src: str | None) -> str:
@@ -209,6 +211,8 @@ class Entity:
     st_win: list = field(default_factory=list)     # Search Term con termine == target (finestre DATE_RANGE o non note)
     child: list = field(default_factory=list)
     neg: list = field(default_factory=list)
+    trend_t: list = field(default_factory=list)    # Target di finestre 7D (SHORT_TREND): solo overlay di trend, mai evidenza decisionale
+    trend_s: list = field(default_factory=list)    # Search Term 7D con termine == target (fallback del solo overlay)
 
 
 @dataclass
@@ -338,8 +342,13 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
             ents[key] = Entity(key, campaign_id, k, target)
         return ents[key]
 
+    short_max = ctx.rules["snapshots"].get("short_trend_max_days", 10)
+    trend_rows = []                                  # righe 7D: non entrano in nessuna evidenza decisionale (L/30D/contesto/delivery/figli/negative)
     for rec in recs:
         ct = rec.get("campaign_type")
+        if rec["report_scope"] == "DATE_RANGE" and (days_inclusive(rec["date_from"], rec["date_to"]) or 10 ** 6) <= short_max:
+            trend_rows.append(rec)
+            continue
         if rec["report_type"] == "TARGETING":
             (ent(rec["campaign_id"], rec["target"], campaign_type=ct).tgt_win if rec["report_scope"] == "DATE_RANGE"
              else ent(rec["campaign_id"], rec["target"], campaign_type=ct).life).append(rec)
@@ -350,6 +359,17 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
             ent(rec["campaign_id"], rec["target"], "neg", rec["search_term"], campaign_type=ct).neg.append(rec)
         else:
             ent(rec["campaign_id"], rec["target"], campaign_type=ct).child.append(rec)
+    for rec in trend_rows:                           # le righe 7D si agganciano solo a entita' gia' esistenti (mai una decisione creata dal solo 7D)
+        ct = rec.get("campaign_type")
+        if rec["report_type"] == "TARGETING":
+            e7, dest = ents.get(action_key(book_id, rec["campaign_id"], rec["target"], None, None, ct)), "trend_t"
+        elif term_matches_target(rec["search_term"], rec["target"], ct):
+            e7, dest = ents.get(action_key(book_id, rec["campaign_id"], rec["target"], None, None, ct)), "trend_s"
+        else:
+            e7 = dest = None
+        if e7 is not None:
+            getattr(e7, dest).append(rec)
+    ds.accounting["trend_7d_rows"] = len(trend_rows)
     n_life = sum(len(e.life) for e in ents.values())
     ds.accounting["lifetime_target_rows_used"] = n_life
     ds.accounting["target_window_rows_used"] = sum(len(e.tgt_win) for e in ents.values())
@@ -426,6 +446,11 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
     dcfg, snap_cfg = ctx.rules["delivery"], ctx.rules["snapshots"]
     cc = camp_ctx.get(e.campaign_id) or {"snaps": {"TARGETING": {}, "SEARCH_TERM": {}}, "comparable": set(), "latest_comparable": None,
                                         "tactical_pid": None, "tactical_comparable": False}
+    # periodo 7D piu' recente importato per QUALUNQUE campagna del libro: una campagna assente da quel report ha dati 7D NON DISPONIBILI (MISSING_7D), non zero traffico
+    book_trend_pid = None
+    if not (cc.get("trend_pid") or cc.get("trend_st_pid")):
+        cands = [(i["date_to"] or "", p) for c in camp_ctx.values() for p, i in c["snaps"]["TARGETING"].items() if i["role"] == "SHORT_TREND"]
+        book_trend_pid = max(cands)[1] if cands else None
     if len(e.life) > 1:
         ds.warnings.append(f"DATA_WARNING {e.key}: {len(e.life)} snapshot lifetime, uso il piu' recente")
     life_rec = _pick_life(e.life)
@@ -505,6 +530,27 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
                     and CONF_ORDER[Tv.conf] >= CONF_ORDER[cfg["tactical_good_min_confidence"]]
                     and Tv.m.acos is not None and Tv.m.acos <= ctx.break_even_acos)
 
+    # ---- TREND 7D (overlay temporale, vedi kdp_ads/trend.py): conferma/smentisce/rende incerta la lettura 30D; mai decisionale da solo
+    tr_cfg = TR.config(ctx.rules)
+    trend = None
+    # RIGA ASSENTE != ZERO TRAFFICO: NO_TRAFFIC_7D solo se il report 7D contiene davvero la riga del target (con 0 clic); altrimenti MISSING_7D (nessuna riga 7D per questo
+    # target, oppure campagna assente dal 7D, oppure fonte Search Term che non rappresenta tutto il traffico del target): nessun effetto sulla decisione.
+    t7_pid = cc.get("trend_pid") or cc.get("trend_st_pid") or book_trend_pid
+    if tr_cfg["enabled"] and e.kind != "neg" and t7_pid:
+        from_targeting = bool(cc.get("trend_pid"))
+        pool = e.trend_t if from_targeting else e.trend_s
+        t7_rec = next((r for r in pool if win.rec_period(r) == t7_pid), None)
+        if t7_rec is None or (not from_targeting and not (t7_rec["clicks"] or 0)):
+            trend = {"state": "MISSING_7D", "evidence": None, "m": None, "period": t7_pid, "weak30": False,
+                     "note": "nessuna riga 7D per questo target: i dati 7D non sono disponibili (l'assenza NON significa zero traffico)"}
+        else:
+            m7 = compute_metrics(t7_rec["impressions"], t7_rec["clicks"], t7_rec["spend"], t7_rec["orders"], t7_rec["sales"], R)
+            ev7 = TR.evidence_7d(m7.clicks, m7.spend, R, tr_cfg)
+            weak30 = P is not None and TR.weak_30d(P.m.acos, P.m.orders, P.m.clicks, P.step, P.action, ctx.target_acos)
+            t_state, t_note = TR.classify_trend(ev7, m7.acos, m7.orders, weak30, ctx.target_acos, life_step >= 100 or p_step >= 100)
+            trend = {"state": t_state, "evidence": ev7, "m": m7, "period": t7_pid, "note": t_note, "weak30": weak30}
+    trend_watch = False
+
     if e.kind == "neg":
         n = negs[0]
         final_action, step, conf, rule = "NEGATIVE_CANDIDATE", 0, n.conf, "N1_NEGATIVE_SEARCH_TERM"
@@ -572,6 +618,26 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
         step, rule = 5, "C5_CROSS_ONLY"
         conf = "MEDIUM"
         logic = "Nessun bid-down da lifetime/recente; il cross-campaign indica questa campagna materialmente peggiore sullo stesso termine: -5%."
+
+    if trend and trend["m"] is not None and e.kind != "neg":
+        t_state = trend["state"]
+        m7 = trend["m"]
+        t_txt = f"{m7.clicks:g} clic, {m7.orders:g} ordini, ACOS {'n/d' if m7.acos is None else format(m7.acos, '.1f') + '%'}"
+        if t_state == "RECENT_RECOVERY" and rule == "C4_RECENT_DETERIORATION":
+            # bid-down basato SOLO sul peggioramento 30D mentre lo storico e' sano e il 7D (evidenza sufficiente) e' tornato entro l'obiettivo: nessun bid-down, mai un aumento
+            conf, rule, resolved, step = cap(conf, "MEDIUM"), "T2_RECENT_RECOVERY_NO_DOWN", "WATCH", 0
+            flags = [f for f in flags if f != "RECENT_DETERIORATION"] + ["RECENT_RECOVERY_7D"]
+            logic = (f"Il 30D e' peggiorato ma negli ultimi 7 giorni ({t_txt}, evidenza {trend['evidence']}) il target e' tornato entro l'obiettivo con conversioni "
+                     "e lo storico e' sano: bid-down sospeso (recupero recente), monitorare. Nessun aumento dell'offerta.")
+        elif (t_state == "CONFIRMED_DECLINE" and rule == "C0_NO_DOWN" and resolved is None and step == 0 and not tac_good
+              and P is not None and P.m.clicks >= ctx.rules["zero_orders"]["insufficient_clicks_below"]):
+            # peggioramento confermato da 30D + 7D (evidenza forte): al massimo una riduzione prudente -5% (mai -10/-15 dal solo 7D), che passa dagli stessi controlli (delivery, stato target)
+            step, rule, conf = 5, "T1_TREND_CONFIRMED_DECLINE", "MEDIUM"
+            flags.append("TREND_CONFIRMED_DECLINE")
+            logic = (f"PEGGIORAMENTO CONFERMATO: 30D sopra l'obiettivo (ACOS {'n/d' if P.m.acos is None else format(P.m.acos, '.1f') + '%'}, {P.m.clicks:g} clic) e 7D con "
+                     f"evidenza {trend['evidence']} ancora sfavorevole ({t_txt}): riduzione prudente -5% (il 7D da solo non decide, mai oltre -5%).")
+        elif t_state == "WATCH_RECENT" and rule == "C0_NO_DOWN" and resolved is None:
+            trend_watch = True
 
     strong_cut = False
     if e.kind != "neg" and step > 0:
@@ -643,6 +709,10 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
                 flags.append("RECENT_ZERO_ORDERS_WATCH")
                 logic = (f"Storico in HOLD (ACOS {'n/d' if L.m.acos is None else format(L.m.acos, '.1f') + '%'}), ma nel periodo recente {Tv.m.clicks:g} clic e "
                          f"{Tv.m.spend:.2f} di spesa senza acquisti, ancora sotto le soglie per ridurre l'offerta: monitorare.")
+            if trend_watch and final_action == "HOLD":
+                final_action, rule = "WATCH", "T3_RECENT_WATCH"
+                flags.append("TREND_WATCH_RECENT")
+                logic += f" TREND 7D: {trend['note']}: da monitorare invece di HOLD."
     # ---- stato del target: un target in pausa non puo' avere un'azione di bid operativa (l'analisi economica resta)
     tstatus = (status_of or {}).get((e.campaign_id, ident), "UNKNOWN")
     underlying = None
@@ -790,6 +860,11 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
         "tactical_evidence": json.dumps({"tactical": tac_ev, "other_windows": [
             {"rec_id": r.get("rec_id"), "report_type": r["report_type"], "period_id": win.rec_period(r), "action": r["recommended_action"]} for r in others]},
             ensure_ascii=False, default=str) if (tac_ev or others) else None,
+        "trend_state": trend["state"] if trend else None, "trend_evidence": trend["evidence"] if trend else None,
+        "trend_period": trend["period"] if trend else None, "trend_clicks": trend["m"].clicks if trend and trend["m"] else None,
+        "trend_orders": trend["m"].orders if trend and trend["m"] else None, "trend_spend": trend["m"].spend if trend and trend["m"] else None,
+        "trend_sales": trend["m"].sales if trend and trend["m"] else None, "trend_acos": trend["m"].acos if trend and trend["m"] else None,
+        "trend_note": trend["note"] if trend else None,
         "manual_approval_required": 1, "status": "PROPOSED", "status_updated_at": now,
         "_loss": basis.est_loss, "_growth": bool(growth), "_ev": {"L": L, "T": Tv, "R": Rc, "neg": negs, "child": e.child, "cross": xs},
     }

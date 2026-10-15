@@ -244,6 +244,21 @@ OPP_FLAG_LABELS = {"AUTO_STRONG_WINNER": "Vincitore AUTO forte", "AUTO_MODERATE_
                    "NEGATIVE_CONFLICT": "Conflitto con negativa", "NEGATIVE_EXACT_ONLY": "Solo negativa esatta (stessa query del target)", "PROMOTED_TO_EXACT": "Promossa in EXACT",
                    "PROMOTED_EXACT_PAUSED": "Promossa in EXACT (target in pausa)", "PRODUCT_TARGET": "Target prodotto"}
 OPP_NEGATIVE_TYPE_NOTE = "Il tipo di negativa (exact o phrase) non è deciso."
+# ------------------------------------------------------------------ trend 7D (overlay temporale Lifetime + 30D + 7D)
+TREND_LABELS = {"STABLE": "STABILE", "CONFIRMED_DECLINE": "PEGGIORAMENTO CONFERMATO", "RECENT_RECOVERY": "RECUPERO RECENTE",
+                "WATCH_RECENT": "MONITORA — DATI 7D LIMITATI", "INSUFFICIENT_7D": "MONITORA — DATI 7D LIMITATI", "NO_TRAFFIC_7D": "NESSUN TRAFFICO 7D",
+                "MISSING_7D": "DATI 7D NON DISPONIBILI"}
+TREND_TONES = {"STABLE": "green", "CONFIRMED_DECLINE": "red", "RECENT_RECOVERY": "blue", "WATCH_RECENT": "orange", "INSUFFICIENT_7D": "grey", "NO_TRAFFIC_7D": "grey", "MISSING_7D": "grey"}
+TREND_EVIDENCE = {"STRONG": "forte", "MEDIUM": "media", "LOW": "bassa", "NO_TRAFFIC": "nessun traffico"}
+
+
+def label_trend(state, evidence=None):
+    """WATCH_RECENT con evidenza forte = 7D sfavorevole ma 30D sano (non e' un dato limitato)."""
+    if state == "WATCH_RECENT" and evidence == "STRONG":
+        return "MONITORA — 7D SFAVOREVOLE, 30D SANO"
+    return TREND_LABELS.get(state, state or ND)
+
+
 FLAG_LABELS = {
     "ZERO_ORDER_WASTE": "Spesa senza acquisti",
     "HIGH_VOLUME": "Alto volume",
@@ -253,6 +268,9 @@ FLAG_LABELS = {
     "TACTICAL_RECOVERED": "Periodo recente in recupero",
     "REVIEW_DELIVERY": "Verifica erogazione",
     "RECENT_DETERIORATION": "Peggioramento recente",
+    "TREND_CONFIRMED_DECLINE": "Peggioramento confermato (30D + 7D)",
+    "RECENT_RECOVERY_7D": "Recupero recente (7D): bid-down sospeso",
+    "TREND_WATCH_RECENT": "Dati 7D da monitorare",
     "MILD_DETERIORATION_MONITOR": "Peggioramento lieve: da monitorare",
     "NO_RECENT_TRAFFIC": "Nessun traffico recente: verifica l'erogazione",
     "RECENT_ZERO_ORDERS_WATCH": "Recente senza acquisti: da monitorare",

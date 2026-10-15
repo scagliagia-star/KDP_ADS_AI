@@ -36,14 +36,19 @@ def window_label(scope, d_from, d_to) -> str:
     return f"RECENT_{n}D" if n else "UNKNOWN"
 
 
+SHORT_TREND_MAX_DAYS = 10
+
+
 def window_role(scope, d_from, d_to, cfg: dict) -> str:
     """Ruolo della finestra (soglie in rules.json -> snapshots):
-    TACTICAL (<= tactical_max_days), RECENT_CONTEXT (<= recent_context_max_days), HISTORICAL_CONTEXT (lifetime o piu' lunga)."""
+    SHORT_TREND (<= short_trend_max_days, il 7D: solo overlay di trend), TACTICAL (<= tactical_max_days), RECENT_CONTEXT (<= recent_context_max_days), HISTORICAL_CONTEXT (lifetime o piu' lunga)."""
     if scope == "LIFETIME":
         return "HISTORICAL_CONTEXT"
     n = days_inclusive(d_from, d_to) if scope == "DATE_RANGE" else None
     if not n:
         return "UNKNOWN"
+    if n <= cfg.get("short_trend_max_days", SHORT_TREND_MAX_DAYS):
+        return "SHORT_TREND"                       # 7D: overlay di trend, MAI finestra tattica/di contesto
     if n <= cfg["tactical_max_days"]:
         return "TACTICAL"
     return "RECENT_CONTEXT" if n <= cfg["recent_context_max_days"] else "HISTORICAL_CONTEXT"

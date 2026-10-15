@@ -4,7 +4,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from .decfields import DEC_COLUMNS
+from .decfields import DEC_COLUMNS, DEC_FIELDS
 from .metrics import set_currency, sym
 from .report import _cell, _path, _table
 
@@ -37,6 +37,10 @@ def write_decisions_csv(ds, out_dir, ts) -> Path:
 
 
 def save_decisions_to_db(conn, ds, csv_path, md_path) -> int:
+    have = {r[1] for r in conn.execute("PRAGMA table_info(decisions)")}
+    for name, typ in DEC_FIELDS:                      # colonne aggiunte dopo (nullable): un DB aperto senza db.connect() non fallisce
+        if have and name not in have:
+            conn.execute(f"ALTER TABLE decisions ADD COLUMN {name} {typ}")
     with conn:
         cur = conn.execute(
             "INSERT INTO decision_runs (book_id,generated_at,analysis_run_id,csv_path,md_path,decision_count,accounting_json,warnings_json,marketplace) "

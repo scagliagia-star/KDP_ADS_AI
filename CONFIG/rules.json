@@ -107,8 +107,16 @@
   },
   "snapshots": {
     "_note": "Ruolo delle finestre temporali. TACTICAL <= tactical_max_days; RECENT_CONTEXT <= recent_context_max_days; oltre = contesto storico. Le finestre sovrapposte non vengono mai sommate.",
+    "short_trend_max_days": 10,
     "tactical_max_days": 35,
     "recent_context_max_days": 90
+  },
+  "trend_7d": {
+    "_note": "Overlay di trend 7D (finestra SHORT_TREND <= snapshots.short_trend_max_days). Il 30D resta la finestra decisionale principale; il 7D non decide mai da solo. Evidenza 7D: NO_TRAFFIC = 0 clic; STRONG = >= strong_min_clicks clic OPPURE spesa >= strong_spend_royalty_mult x royalty; MEDIUM = >= medium_min_clicks clic; LOW = meno. Effetti solo con evidenza STRONG: peggioramento confermato -> al massimo -5% (mai -10/-15 dal solo 7D); recupero credibile -> blocca un bid-down basato solo sul 30D, mai un aumento.",
+    "enabled": true,
+    "strong_min_clicks": 10,
+    "strong_spend_royalty_mult": 1.0,
+    "medium_min_clicks": 5
   },
   "delivery": {
     "_note": "Delivery = rapporto per-giorno fra la finestra tattica piu' recente e una finestra di riferimento piu' lunga dello STESSO tipo di report. ratio>=increasing_min: INCREASING; >=declining_max: STABLE; >=collapsed_max: DECLINING; altrimenti COLLAPSED. UNKNOWN se il riferimento ha meno di min_reference_clicks clic/min_reference_days giorni o la finestra recente meno di min_latest_days giorni. Una riga assente dalla finestra recente e' UNKNOWN (flag ABSENT_IN_LATEST_SNAPSHOT) a meno di absent_row_counts_as_zero.",

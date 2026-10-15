@@ -3,7 +3,7 @@ Tutti i testi mostrati sono in italiano (ui_labels.py); i valori tecnici restano
 import formatting as F
 import ui_labels as U
 from kdp_ads.metrics import set_currency
-from components import style
+from components import style, trend_ui
 
 
 def header(st):
@@ -79,6 +79,9 @@ def decision_card(st, d):
         metrics_block(st, U.label_window("LIFETIME").upper(), d, "lifetime", l_extra)
         metrics_block(st, f"{U.label_window(d.get('recent_window') or 'RECENT_65D').upper()} · {d.get('recent_period') or F.ND}", d, "recent")
         metrics_block(st, f"{U.label_window(d.get('tactical_window') or 'RECENT_30D').upper()} · {d.get('tactical_period') or F.ND}", d, "tactical")
+        if trend_ui.has_trend(d):
+            metrics_block(st, f"{U.label_window('RECENT_7D').upper()} · {d.get('trend_period') or F.ND}", d, "trend",
+                          f"Tendenza: {U.label_trend(d.get('trend_state'), d.get('trend_evidence'))}. {d.get('trend_note') or ''}")
 
         st.markdown("**PERCHÉ?**")
         for part in [p.strip() for p in U.label_reason(d.get("reason")).split(" | ")]:

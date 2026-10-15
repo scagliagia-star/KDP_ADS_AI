@@ -2,6 +2,7 @@
 Amazon Ads; i codici tecnici compaiono SOLO in PERCHÉ? > DETTAGLIO TECNICO. Le collezioni arrivano da data_access.overview.build_overview."""
 import formatting as F
 import ui_labels as U
+from components import trend_ui
 from data_access import overview as O
 
 
@@ -96,6 +97,7 @@ def action_card(st, c, book):
         m[3].metric(f"ACOS ultimi {a['recent_days']} giorni", _acos(a["recent"]))
         m[4].metric(f"ACOS ultimi {a['tactical_days']} giorni", _acos(a["tactical"]))
         m[5].metric("Affidabilità", U.label_confidence(c["confidence"]))
+        trend_ui.line(st, d)
         if c.get("underlying"):
             st.caption(f"Azione potenziale conservata: {O.simple_action({'final_action': c['underlying']})['word'].lower()}.")
         why(st, d, book)

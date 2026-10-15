@@ -20,7 +20,7 @@ def _kind(row):
     if row["report_scope"] == "LIFETIME":
         return "LIFETIME"
     n = days_inclusive(row["date_from"], row["date_to"]) if row["report_scope"] == "DATE_RANGE" else None
-    return {65: "D65", 30: "D30", 28: "D28"}.get(n)
+    return {65: "D65", 30: "D30", 28: "D28", 7: "D7"}.get(n)
 
 
 def checklist(ws, book_id, reference: date, fresh_days: int = FRESH_DAYS, marketplace=None) -> list[dict]:
