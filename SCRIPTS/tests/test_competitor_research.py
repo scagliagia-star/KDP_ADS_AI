@@ -651,7 +651,7 @@ class MigrationTests(unittest.TestCase):
             c.close()
 
     def test_real_db_copy_opens_and_is_unchanged(self):
-        real = ROOT / "DATABASE" / "kdp_ads.db"
+        real = __import__("realdata").snapshot()
         if not real.is_file():
             self.skipTest("DB reale assente")
         h = hashlib.sha256(real.read_bytes()).hexdigest()

@@ -119,7 +119,7 @@ class SchemaMigrationTests(unittest.TestCase):
 
     @unittest.skipUnless((ROOT / "DATABASE" / "kdp_ads.db").is_file(), "DB reale assente")
     def test_copy_of_the_real_db_migrates_keeping_every_row(self):
-        real = ROOT / "DATABASE" / "kdp_ads.db"
+        real = __import__("realdata").snapshot()
         h = hashlib.sha256(real.read_bytes()).hexdigest()
         src = sqlite3.connect(f"{real.resolve().as_uri()}?mode=ro", uri=True)
         with tempfile.TemporaryDirectory() as d:

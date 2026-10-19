@@ -184,7 +184,8 @@ class DecisionHelpersTests(unittest.TestCase):
 
 
 # ------------------------------------------------------------------ libro reale (copia): Dry Mix + regressioni
-REAL_DB = ROOT / "DATABASE" / "kdp_ads.db"
+import realdata  # noqa: E402  (snapshot deterministico dei dati storici: vedi realdata.py)
+REAL_DB = realdata.snapshot()
 
 
 @unittest.skipUnless(REAL_DB.is_file(), "DB reale assente")
@@ -207,7 +208,7 @@ class RealBooksOnCopyTests(unittest.TestCase):
         cls.runs = {}
         from kdp_ads.config import CONFIG_DIR, load_mapping, load_settings
         from kdp_ads.pipeline import run_analysis, run_decisions
-        lg, s = logging.getLogger("t"), load_settings()
+        lg, s = logging.getLogger("t"), realdata.settings()
         for book in ("1805566598", "B0GY42H3W4", "B0H7P3C4D7"):
             if not dst.execute("SELECT 1 FROM decision_runs WHERE book_id=?", (book,)).fetchone():
                 continue

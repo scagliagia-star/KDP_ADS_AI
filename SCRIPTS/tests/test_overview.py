@@ -20,7 +20,8 @@ import ui_labels as U  # noqa: E402
 from data_access import overview as O  # noqa: E402
 from data_access.repository import parse_delivery_detail  # noqa: E402
 
-REAL_DB = ROOT / "DATABASE" / "kdp_ads.db"
+import realdata  # noqa: E402  (snapshot deterministico dei dati storici: vedi realdata.py)
+REAL_DB = realdata.snapshot()
 BOOK = {"target_acos": 35.0, "break_even_acos": 45.02, "currency": "USD"}
 CODE_RE = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
 TECH_WORDS = ("loose-match", "close-match", "substitutes", "complements", "ENABLED", "PAUSED", "KEYWORD_TARGET", "AUTO_TARGETING_GROUP", "UNKNOWN")

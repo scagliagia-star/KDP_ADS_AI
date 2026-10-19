@@ -42,6 +42,10 @@ def card(st, i):
     with st.container(border=True):
         if acct:
             st.caption(acct)
+        src = i.get("decision") or i.get("record") or {}
+        line = O.campaign_text(src.get("campaign_name"), src.get("amazon_campaign_id"))
+        if line:
+            st.caption(line)
         if cat == "SCALE":
             st.markdown(f"{F.badge('ALZA OFFERTA 5%', 'green')} **{F.esc(str(i['campaign']))} · {F.esc(U.display_target(i['target']))}**", unsafe_allow_html=True)
             st.caption(f"Tipo: {U.label_target_type(i.get('target_type'))} · Campagna: {i['campaign']}")

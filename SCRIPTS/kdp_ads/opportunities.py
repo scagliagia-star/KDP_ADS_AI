@@ -36,6 +36,7 @@ import re
 import unicodedata
 from collections import defaultdict
 
+from . import intent as intent_filter
 from .dataquality import impossible_warnings, split_search_terms
 from .metrics import AUTO_TARGET_GROUPS, compute_metrics, normalize_term, product_asin, target_type, term_matches_target
 from .rules import BookCtx, CONF_ORDER, calculate_confidence, deep_merge
@@ -45,8 +46,9 @@ PROMOTE, NEGATIVE, WATCH, NO_ACTION = "PROMOTE_TO_EXACT", "NEGATIVE_CANDIDATE", 
 REVIEW_CONFLICT = "REVIEW_NEGATIVE_CONFLICT"                     # termine che vende ma gia' negativo: solo verifica manuale
 PROMOTED = "PROMOTED_TO_EXACT"                                   # negativa in FRASE + keyword gia' in EXACT: promozione completata, nessuna azione
 PRODUCT_WINNER = "WINNING_PRODUCT_TARGET"                        # ASIN / product target che vende bene: mai una keyword EXACT
+OUT_OF_INTENT = "OUT_OF_INTENT_TERM"                              # ha convertito ma l'intento della query non e' quello del libro: mai promosso (ne' negativo per questo)
 SUGGEST_PHRASE = "SUGGEST_IN_PHRASE"                              # vincitore AUTO moderato: prima validazione in FRASE, non ancora EXACT
-OPPORTUNITY_TYPES = (PROMOTE, NEGATIVE, WATCH, NO_ACTION, REVIEW_CONFLICT, PROMOTED, PRODUCT_WINNER, SUGGEST_PHRASE)
+OPPORTUNITY_TYPES = (PROMOTE, NEGATIVE, WATCH, NO_ACTION, REVIEW_CONFLICT, PROMOTED, PRODUCT_WINNER, SUGGEST_PHRASE, OUT_OF_INTENT)
 SUGGESTION_NEW_EXACT = "Valuta creazione campagna EXACT"
 DISCOVERY_TYPES = frozenset({"PHRASE", "BROAD", "AUTO", "OTHER"})
 _CONF = ["LOW", "MEDIUM", "HIGH"]
@@ -78,6 +80,8 @@ def _cfg(ctx):
 
 def make_ctx(book: dict, rules: dict) -> BookCtx:
     """BookCtx minimo dall'economia del marketplace (royalty, target ACOS, break-even): nessun valore hardcodato."""
+    if book.get("rule_overrides"):                              # eccezioni per libro/nicchia (es. rule_overrides.intent.allow) come nel resto del motore
+        rules = deep_merge(rules, book["rule_overrides"])
     return BookCtx(str(book["book_id"]), book.get("title") or "", str(book.get("marketplace") or ""), book.get("currency") or "USD",
                    float(book.get("price") or 0), float(book["royalty_per_copy"]), float(book["target_acos"]),
                    float(book["break_even_acos"]), book.get("phase") or "", rules)
@@ -283,8 +287,26 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
     for r in st_rows:
         if r.get("amazon_account_id"):
             acct_of.setdefault(r["campaign_id"], r["amazon_account_id"])
+    camp_name = {c["campaign_id"]: c.get("campaign_name") for c in campaigns}
+    amz_id = {}
+    for r in st_rows:
+        if r.get("amazon_campaign_id"):
+            amz_id.setdefault(r["campaign_id"], r["amazon_campaign_id"])
     for rec in records:
         rec["amazon_account_id"] = acct_of.get(rec["campaign_id"])        # ogni opportunita' risale al suo account (None = legacy_account_unknown)
+        rec["amazon_campaign_id"] = amz_id.get(rec["campaign_id"])        # ...e alla sua campagna Amazon (per distinguere campagne dello stesso tipo)
+        rec["campaign_name"] = camp_name.get(rec["campaign_id"])
+    # FILTRO DI INTENTO: una promozione (AUTO->FRASE, AUTO/FRASE->EXACT) richiede anche PERTINENZA, non solo buone metriche. Fuori intento = non promossa e non negativa.
+    icfg = intent_filter.config(ctx.rules, ctx.book_id)
+    for rec in records:
+        if rec["opportunity_type"] in (PROMOTE, SUGGEST_PHRASE):
+            hit = intent_filter.check(rec["search_term"], icfg["allow"], icfg["extra_blocked"], icfg["book_intent_wins"], icfg["enabled"])
+            if hit:
+                rec["opportunity_type"] = OUT_OF_INTENT
+                rec["flags"] = [f for f in rec["flags"] if f not in ("AUTO_STRONG_WINNER", "AUTO_MODERATE_WINNER")] + ["OUT_OF_INTENT"]
+                rec["intent"] = hit
+                rec["operationally_actionable"] = False
+                rec["reason"] = f"{intent_filter.REASON} ({hit['detail']}) Non viene promossa; non e' per questo una negativa. " + rec["reason"]
     phrase_campaigns = sorted(c["campaign_id"] for c in campaigns if str(c.get("campaign_type") or "").upper() == "PHRASE")
     for rec in records:
         if rec["opportunity_type"] == SUGGEST_PHRASE:
@@ -517,9 +539,10 @@ def load_inputs(conn, book_id, marketplace, legacy_marketplace=None):
         sql, args = clause(table)
         if key == "st_rows":
             have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
-            cols = cols.replace("{extra}", "".join(f", {c}" for c in ("ad_group", "added_as", "amazon_account_id") if c in have))
+            cols = cols.replace("{extra}", "".join(f", {c}" for c in ("ad_group", "added_as", "amazon_account_id", "amazon_campaign_id") if c in have))
         out[key] = q(f"SELECT {cols} FROM {table} WHERE book_id=?{sql}", (book_id, *args))
     sql, args = clause("campaigns")
-    acc = ", amazon_account_id" if "amazon_account_id" in {r[1] for r in conn.execute("PRAGMA table_info(campaigns)")} else ""
+    have_c = {r[1] for r in conn.execute("PRAGMA table_info(campaigns)")}
+    acc = "".join(f", {c}" for c in ("campaign_name", "amazon_account_id") if c in have_c)
     out["campaigns"] = q(f"SELECT campaign_id, campaign_type{acc} FROM campaigns WHERE book_id=?{sql}", (book_id, *args))
     return out

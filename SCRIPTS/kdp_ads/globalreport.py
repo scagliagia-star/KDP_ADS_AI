@@ -263,20 +263,49 @@ def campaign_summary(rows: list) -> dict:
         c["ad_groups"], c["targets"] = sorted(c["ad_groups"]), sorted(c["targets"])
         c["first"] = c["first"].isoformat() if c["first"] else None
         c["last"] = c["last"].isoformat() if c["last"] else None
-        c["campaign_type"] = detect_campaign_type(c["matches"], c["targets"])
+        c["campaign_type"], c["campaign_kind"], c["type_source"] = classify_campaign(c["matches"], c["targets"], [c["name"] or ""] + list(c["ad_groups"]))
     return out
 
 
-def detect_campaign_type(matches: dict, targets=()) -> str:
-    """Tipo campagna dal tipo di corrispondenza dei target: PREDEFINED (close/loose/complements/substitutes) = AUTO ('OTHER'), asin= = COMPETITOR, PHRASE, EXACT.
-    E' un SUGGERIMENTO modificabile all'associazione; prevale la maggioranza, a pari merito PHRASE > EXACT."""
+# parole che nel NOME della campagna / del gruppo annunci indicano il tipo (solo come ultimo ripiego: i dati strutturati e il tipo di corrispondenza prevalgono)
+_NAME_HINTS = {"AUTO": ("auto", "automatic", "automatico"), "PHRASE": ("frase", "phrase", "broad"), "EXACT": ("esatta", "esatto", "exact"),
+               "COMPETITOR": ("prodotto", "prodotti", "product", "products", "asin", "competitor", "competitors")}
+_AUTO_GROUPS_ = frozenset({"close-match", "loose-match", "complements", "substitutes"})
+
+
+def _name_kind(names) -> str | None:
+    """Tipo suggerito dal solo nome (campagna + gruppi annunci): un tipo se e' l'UNICO compatibile, altrimenti None (ambiguo: non si inventa)."""
+    toks = set()
+    for n in names:
+        toks |= set(re.findall(r"[a-z]+", unicodedata.normalize("NFKD", str(n or "")).encode("ascii", "ignore").decode().lower().replace("_", " ")))
+    found = [k for k, words in _NAME_HINTS.items() if toks & set(words)]
+    return found[0] if len(found) == 1 else None
+
+
+def classify_campaign(matches: dict, targets=(), names=()) -> tuple:
+    """(codice tipo, tipo letto, fonte). PRIORITA': dati strutturati > tipo di corrispondenza > nome campagna/gruppo annunci. Codici nel motore: PHRASE, EXACT, COMPETITOR (prodotto) e OTHER
+    (che e' anche il codice storico delle campagne AUTO). Tipo letto: AUTO, PHRASE, EXACT, COMPETITOR oppure AMBIGUOUS (nessun tipo inventato: codice OTHER).
+    Fonte: STRUCTURED (gruppi Auto / target prodotto), MATCH_TYPE, NAME, NONE."""
     n = lambda *k: sum(matches.get(x, 0) for x in k)                                  # noqa: E731
     auto, expr, phrase, exact = n("TARGETING_EXPRESSION_PREDEFINED"), n("TARGETING_EXPRESSION"), n("PHRASE", "BROAD"), n("EXACT")
-    if auto and auto >= max(expr, phrase, exact):
-        return "OTHER"
-    if expr and expr > max(phrase, exact):
-        return "COMPETITOR"
-    return "EXACT" if exact > phrase else "PHRASE"
+    auto_groups = sum(1 for t in targets if str(t).strip().lower() in _AUTO_GROUPS_)
+    product_targets = sum(1 for t in targets if re.match(r'^\s*(asin|asin-expanded|category)\s*=', str(t), re.I))
+    if (auto or auto_groups) and (auto + auto_groups) >= max(expr, product_targets, phrase, exact):
+        return "OTHER", "AUTO", "STRUCTURED"
+    if (expr or product_targets) and max(expr, product_targets) > max(phrase, exact):
+        return "COMPETITOR", "COMPETITOR", "STRUCTURED"
+    if phrase != exact:
+        return ("PHRASE", "PHRASE", "MATCH_TYPE") if phrase > exact else ("EXACT", "EXACT", "MATCH_TYPE")
+    hint = _name_kind(names)                                                            # parita' o nessun tipo di corrispondenza: si guarda il nome
+    if hint:
+        return ("OTHER" if hint == "AUTO" else hint), hint, "NAME"
+    return "OTHER", "AMBIGUOUS", "NONE"
+
+
+def detect_campaign_type(matches: dict, targets=(), names=()) -> str:
+    """Tipo campagna dal tipo di corrispondenza dei target: PREDEFINED (close/loose/complements/substitutes) = AUTO ('OTHER'), asin= = COMPETITOR, PHRASE, EXACT.
+    E' un SUGGERIMENTO modificabile all'associazione; prevale la maggioranza, a pari merito PHRASE > EXACT."""
+    return classify_campaign(matches, targets, names)[0]
 
 
 def to_json(rows) -> str:

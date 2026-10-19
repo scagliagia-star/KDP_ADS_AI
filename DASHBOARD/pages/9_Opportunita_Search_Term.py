@@ -7,10 +7,11 @@ import bootstrap  # noqa: F401,E402
 import streamlit as st  # noqa: E402
 
 import formatting as F  # noqa: E402
+from data_access import overview as O  # noqa: E402
 import ui_labels as U  # noqa: E402
 from components import cards, sidebar  # noqa: E402
 from data_access.repository import RepoError  # noqa: E402
-from kdp_ads.opportunities import NEGATIVE, NO_ACTION, PRODUCT_WINNER, PROMOTE, PROMOTED, REVIEW_CONFLICT, SUGGEST_PHRASE, WATCH, rank, unique_terms  # noqa: E402
+from kdp_ads.opportunities import NEGATIVE, NO_ACTION, OUT_OF_INTENT, PRODUCT_WINNER, PROMOTE, PROMOTED, REVIEW_CONFLICT, SUGGEST_PHRASE, WATCH, rank, unique_terms  # noqa: E402
 
 ctx = cards.page_setup(st, U.OPP_PAGE_TITLE, lambda: sidebar.select_context(st))
 st.caption(U.OPP_INTRO)
@@ -69,6 +70,7 @@ def table(rows):
     for r in rows:
         L.append({
             "Termine di ricerca": r["search_term"], "Campagna di provenienza": f"{r['campaign_id']} ({r['campaign_type'] or F.ND})",
+            "Campagna Amazon (nome · ID)": (O.campaign_text(r.get("campaign_name"), r.get("amazon_campaign_id")) or F.ND).replace("Campagna: ", ""),
             "Target padre": parent_text(r), "Ultimi 30 giorni": window_text(r["window_30d"]), "Ultimi 65 giorni": window_text(r["window_65d"]),
             "Clic": F.num(r["clicks"]), "Acquisti": F.num(r["orders"]), "Spesa": F.money(r["spend"]), "Vendite": F.money(r["sales"]),
             "ACOS": F.acos(r["acos"]), "CVR": F.pct(r["cvr"]), "Profitto stimato": F.money(r["estimated_profit"]),
@@ -80,14 +82,16 @@ def table(rows):
 
 
 for title, otype in ((U.OPP_SECTION_PROMOTE, PROMOTE), (U.OPP_SECTION_NEGATIVE, NEGATIVE), (U.OPP_SECTION_WATCH, WATCH),
-                     (U.OPP_SECTION_CONFLICT, REVIEW_CONFLICT), (U.OPP_SECTION_PROMOTED, PROMOTED), (U.OPP_SECTION_PRODUCT, PRODUCT_WINNER), (U.OPP_SECTION_PHRASE, SUGGEST_PHRASE)):
-    if otype in (REVIEW_CONFLICT, PROMOTED, PRODUCT_WINNER, SUGGEST_PHRASE) and not rank(records, otype):
+                     (U.OPP_SECTION_CONFLICT, REVIEW_CONFLICT), (U.OPP_SECTION_PROMOTED, PROMOTED), (U.OPP_SECTION_PRODUCT, PRODUCT_WINNER), (U.OPP_SECTION_PHRASE, SUGGEST_PHRASE), (U.OPP_SECTION_INTENT, OUT_OF_INTENT)):
+    if otype in (REVIEW_CONFLICT, PROMOTED, PRODUCT_WINNER, SUGGEST_PHRASE, OUT_OF_INTENT) and not rank(records, otype):
         continue
     rows = rank(records, otype)
     st.subheader(f"{title} ({len(rows)})")
-    st.markdown(F.badge(U.label_opportunity(otype), {PROMOTE: "green", NEGATIVE: "red", WATCH: "orange", REVIEW_CONFLICT: "orange", PROMOTED: "grey", PRODUCT_WINNER: "green", SUGGEST_PHRASE: "blue"}[otype]), unsafe_allow_html=True)
+    st.markdown(F.badge(U.label_opportunity(otype), {PROMOTE: "green", NEGATIVE: "red", WATCH: "orange", REVIEW_CONFLICT: "orange", PROMOTED: "grey", PRODUCT_WINNER: "green", SUGGEST_PHRASE: "blue", OUT_OF_INTENT: "grey"}[otype]), unsafe_allow_html=True)
     if otype == NEGATIVE:
         st.caption(U.OPP_NEGATIVE_TYPE_NOTE)
+    if otype == OUT_OF_INTENT:
+        st.caption(U.OPP_INTENT_NOTE)
     if otype == PROMOTED:
         st.caption("Keyword negativa nella campagna di scoperta e già presente in una campagna EXACT: configurazione coerente, nessuna azione.")
     if otype == PRODUCT_WINNER:

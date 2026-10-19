@@ -18,6 +18,8 @@ sys.path.insert(0, str(ROOT / "DASHBOARD"))
 sys.path.insert(0, str(ROOT / "SCRIPTS"))
 sys.path.insert(0, str(HERE))
 
+import realdata  # noqa: E402
+
 import test_opportunities as to
 import test_overview as tov
 from kdp_ads.decision import _mild_deterioration, map_target_status
@@ -328,7 +330,7 @@ class RealCoinBookTests(unittest.TestCase):
         conn = sqlite3.connect(self.db)
         conn.row_factory = sqlite3.Row
         try:
-            ds = build_decisions(conn, load_settings(), CONFIG_DIR / "rules.json", "B0GY42H3W4", None, logging.getLogger("t"), "US")
+            ds = build_decisions(conn, realdata.settings(), CONFIG_DIR / "rules.json", "B0GY42H3W4", None, logging.getLogger("t"), "US")
         finally:
             conn.close()
         d = [x for x in ds.decisions if x["campaign_id"] == "AUTO" and x["target"] == "substitutes"][0]

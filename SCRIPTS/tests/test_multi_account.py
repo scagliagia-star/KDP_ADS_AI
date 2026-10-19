@@ -2,6 +2,7 @@
 materializzazione e decisioni sono per account. Fixture sintetiche con Account B DIVERSO ma con ID campagna / gruppo annunci / target e termini di ricerca UGUALI a quelli dell'Account A.
 Workspace temporanei: mai il DB reale ne' books.json reale; nessuna rete, nessuna Amazon."""
 import hashlib
+import shutil
 import os
 import sqlite3
 import sys
@@ -451,26 +452,27 @@ class SchemaTests(unittest.TestCase):
             self.assertEqual(c.execute("SELECT COUNT(*) FROM campaign_book_mapping WHERE amazon_campaign_id='3'").fetchone()[0], 0)
             c.close()
 
-    def test_real_db_is_still_v5_and_migration_is_additive_on_a_copy(self):
-        real = ROOT / "DATABASE" / "kdp_ads.db"
-        if not real.is_file():
+    def test_migration_is_idempotent_and_additive_on_a_copy_of_the_controlled_snapshot(self):
+        import realdata
+        snap = realdata.snapshot()
+        if not snap.is_file():
             self.skipTest("DB reale assente")
-        before = hashlib.sha256(real.read_bytes()).hexdigest()
         import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            src = sqlite3.connect(f"{real.resolve().as_uri()}?mode=ro", uri=True)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             copy = Path(tmp) / "k.db"
-            dst = sqlite3.connect(copy)
-            src.backup(dst)
-            src.close()
-            n_before = {t: dst.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("imports", "target_rows", "search_term_rows", "decisions", "campaigns")}
-            dst.close()
+            shutil.copyfile(snap, copy)
+            tabs = ("imports", "target_rows", "search_term_rows", "decisions", "campaigns")
+            c = sqlite3.connect(copy)
+            n_before = {t: c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in tabs}
+            c.close()
             connect(copy).close()
+            connect(copy).close()                                                                                                       # seconda apertura: nessun effetto
             c = sqlite3.connect(copy)
             self.assertEqual({t: c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in n_before}, n_before)                    # nessuna riga persa
-            self.assertEqual(c.execute("SELECT COUNT(*) FROM campaign_book_mapping").fetchone()[0], 0)
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM campaign_book_mapping").fetchone()[0], 0)                                 # lo snapshot non ha dati globali
             c.close()
-        self.assertEqual(hashlib.sha256(real.read_bytes()).hexdigest(), before)                                                       # DB reale invariato
+        before, after = realdata.real_hashes()
+        self.assertEqual(before, after)                                                                                                 # DB reale mai scritto
 
 
 # ------------------------------------------------------------------ 18. UI

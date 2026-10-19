@@ -331,7 +331,8 @@ class GrowthCardAndPageTests(unittest.TestCase):
 
 
 # ------------------------------------------------------------------ libri reali (COPIA del DB): rigenerazione + regressioni
-REAL_DB = ROOT / "DATABASE" / "kdp_ads.db"
+import realdata  # noqa: E402  (snapshot deterministico dei dati storici: vedi realdata.py)
+REAL_DB = realdata.snapshot()
 BOOKS = {"rare": "B0GY42H3W4", "dry": "1805566598", "cal": "B0GNZFLXCV", "rv": "B0GZNKDLGM", "r66": "B0GZNG6N1D", "mil": "B0GQFR3M1K", "milw": "B0GRP7LZ9J",
          "glu": "B0GSVGRV56", "np": "B0H7P3C4D7"}
 
@@ -354,7 +355,7 @@ class RealBooksGrowthTests(unittest.TestCase):
         dst.row_factory = sqlite3.Row
         from kdp_ads.config import CONFIG_DIR, load_mapping, load_settings
         from kdp_ads.pipeline import run_analysis, run_decisions
-        lg, s = logging.getLogger("t"), load_settings()
+        lg, s = logging.getLogger("t"), realdata.settings()
         cls.runs, cls.dec = {}, {}
         for key, book in BOOKS.items():
             if not dst.execute("SELECT 1 FROM decision_runs WHERE book_id=?", (book,)).fetchone():

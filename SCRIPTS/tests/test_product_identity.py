@@ -76,7 +76,8 @@ class SeparateDecisionsTests(td.DBase):
         self.assertEqual([d["action_key"] for d in ds.decisions], [f"{td.BOOK}|C_COMP|asin:B0FTFJL6RB"])
 
 
-REAL_DB = ROOT / "DATABASE" / "kdp_ads.db"
+import realdata  # noqa: E402  (snapshot deterministico dei dati storici: vedi realdata.py)
+REAL_DB = realdata.snapshot()
 
 
 @unittest.skipUnless(REAL_DB.is_file(), "DB reale assente")
@@ -110,7 +111,7 @@ class RealCopyTests(unittest.TestCase):
     def test_real_book_decisions_are_separate(self):
         from kdp_ads.config import CONFIG_DIR, load_settings
         from kdp_ads.decision import build_decisions
-        ds = build_decisions(self.conn, load_settings(), CONFIG_DIR / "rules.json", "B0GY42H3W4", None, logging.getLogger("t"), "US")
+        ds = build_decisions(self.conn, realdata.settings(), CONFIG_DIR / "rules.json", "B0GY42H3W4", None, logging.getLogger("t"), "US")
         by = {d["target"]: d for d in ds.decisions if d["campaign_id"] == "PRODOTTO"}
         a, x = by['asin="0794851630"'], by['asin-expanded="0794851630"']
         self.assertEqual((a["target_status"], x["target_status"]), ("ENABLED", "PAUSED"))
@@ -132,7 +133,7 @@ class RealCopyTests(unittest.TestCase):
                 continue
             old = {r["action_key"]: (r["final_action"], r["target_status"], r["lifetime_spend"])
                    for r in self.conn.execute("SELECT * FROM decisions WHERE run_id=?", (run["run_id"],)) if "|asin" in r["action_key"]}
-            ds = build_decisions(self.conn, load_settings(), CONFIG_DIR / "rules.json", book, run["analysis_run_id"], logging.getLogger("t"), run["marketplace"])
+            ds = build_decisions(self.conn, realdata.settings(), CONFIG_DIR / "rules.json", book, run["analysis_run_id"], logging.getLogger("t"), run["marketplace"])
             new = {d["action_key"]: (d["final_action"], d["target_status"], d["lifetime_spend"]) for d in ds.decisions if "|asin" in d["action_key"]}
             self.assertEqual(old, new, book)                                                                # identita' dei product target invariata
 
@@ -166,7 +167,7 @@ class RealOverviewTests(unittest.TestCase):
             if not dst.execute("SELECT 1 FROM target_rows WHERE book_id='B0GY42H3W4' AND target LIKE 'asin-expanded%'").fetchone():
                 dst.close()
                 self.skipTest("libro reale B0GY42H3W4 non presente")
-            r = run_decisions(load_settings(), CONFIG_DIR / "rules.json", "B0GY42H3W4", Path(tmp) / "out", logging.getLogger("t"), None, save_db=True, conn=dst,
+            r = run_decisions(realdata.settings(), CONFIG_DIR / "rules.json", "B0GY42H3W4", Path(tmp) / "out", logging.getLogger("t"), None, save_db=True, conn=dst,
                               marketplace="US")
             dst.commit()
             dst.close()

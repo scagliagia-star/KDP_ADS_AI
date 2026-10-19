@@ -6,7 +6,7 @@ DEC_FIELDS = [
     ("decision_id", "TEXT"), ("action_key", "TEXT"), ("run_id", "INTEGER"), ("analysis_run_id", "INTEGER"),
     ("generated_at", "TEXT"),
     ("book_id", "TEXT"), ("marketplace", "TEXT"), ("campaign_id", "TEXT"), ("campaign_name", "TEXT"), ("campaign_type", "TEXT"),
-    ("amazon_account_id", "TEXT"), ("amazon_account_name", "TEXT"),            # account Amazon Ads della campagna (NULL = legacy_account_unknown)
+    ("amazon_account_id", "TEXT"), ("amazon_account_name", "TEXT"), ("amazon_campaign_id", "TEXT"),            # account Amazon Ads della campagna (NULL = legacy_account_unknown)
     ("target", "TEXT"), ("target_type", "TEXT"), ("match_type", "TEXT"), ("search_term", "TEXT"),
     ("current_bid", "REAL"),
     ("final_action", "TEXT"), ("bid_change_pct", "REAL"), ("confidence", "TEXT"), ("priority", "TEXT"),

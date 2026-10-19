@@ -32,7 +32,8 @@ except Exception:                                    # pragma: no cover
 
 PAGE = ROOT / "DASHBOARD" / "pages" / "12_Ricerca_competitor.py"
 GROWTH = ROOT / "DASHBOARD" / "pages" / "11_Suggerimenti_di_crescita.py"
-REAL_DB = ROOT / "DATABASE" / "kdp_ads.db"
+import realdata  # noqa: E402  (snapshot deterministico dei dati storici: vedi realdata.py)
+REAL_DB = realdata.snapshot()
 BOOKS = {"books": [{"book_id": "B0HLL1Y1CN", "title": "Twenty Women, Twenty Mysteries", "active": True,
                     "marketplaces": [{"marketplace": "US", "currency": "USD", "price": 14.99, "royalty_per_copy": 5.0, "target_acos": 35.0,
                                       "phase": "PROFIT_STABLE", "active": True, "break_even_acos": 33.36}]}]}

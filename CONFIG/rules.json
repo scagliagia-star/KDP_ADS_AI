@@ -101,6 +101,14 @@
     "develop_max_clicks": 30,
     "develop_max_spend_mult": 2.0
   },
+  "intent": {
+    "_note": "Filtro di INTENTO per le promozioni Search Term (AUTO->FRASE, AUTO/FRASE->EXACT, crescita): una query fuori intento (abbigliamento, merchandising/arredo, altri oggetti fisici) non viene promossa ma NON diventa per questo una negativa. allow = eccezioni globali; book_allow = eccezioni per libro {book_id: [segnali]} (oppure rule_overrides.intent.allow in books.json); extra_blocked = segnali aggiuntivi. Un segnale bloccato resta bloccato anche con «book»/«guide»: lo sblocca solo allow / book_allow / rule_overrides (book_intent_wins, spento di default, e' un interruttore opzionale).",
+    "enabled": true,
+    "book_intent_wins": false,
+    "allow": [],
+    "book_allow": {},
+    "extra_blocked": []
+  },
   "opportunities": {
     "_note": "Opportunita' Search Term. promote_min_clicks: nessun termine diventa METTI IN EXACT con meno clic di questa soglia, qualunque sia il numero di acquisti (campione troppo piccolo: 1 clic con 2 acquisti resta da monitorare).",
     "promote_min_clicks": 3

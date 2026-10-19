@@ -46,6 +46,11 @@ OV_CONFLICTS = "CONFLITTI DA VERIFICARE"
 ACCOUNT_FILTER = "Account Amazon Ads"
 ACCOUNT_ALL = "TUTTI GLI ACCOUNT"
 ACCOUNT_UNKNOWN = "Account non noto (campagne legacy)"
+# Nel motore il codice storico delle campagne AUTO e' OTHER (nessuna migrazione dei dati). Nell'interfaccia AUTO e' mostrato come AUTO; «ALTRO / non determinato» e' un'altra cosa.
+CAMPAIGN_TYPE_LABELS = {"PHRASE": "FRASE (PHRASE)", "EXACT": "ESATTA (EXACT)", "COMPETITOR": "PRODOTTO / COMPETITOR", "AUTO": "AUTO (targeting automatico)",
+                        "OTHER": "ALTRO / non determinato"}
+UI_TYPE_TO_CODE = {"AUTO": "OTHER"}                                            # scelta in interfaccia -> codice salvato (compatibilita' storica)
+CAMPAIGN_KIND_LABELS = {"AUTO": "AUTO", "PHRASE": "FRASE", "EXACT": "ESATTA", "COMPETITOR": "PRODOTTO", "AMBIGUOUS": "tipo non determinabile"}
 GROW_LOOK_ALSO = "GUARDA ANCHE"
 GROW_NONE = "Al momento non ci sono suggerimenti di crescita affidabili."
 GROW_SEE = "Vedi suggerimenti"
@@ -151,6 +156,7 @@ OPP_LABELS = {
     "PROMOTED_TO_EXACT": "Promossa in EXACT",
     "WINNING_PRODUCT_TARGET": "Target prodotto vincente",
     "SUGGEST_IN_PHRASE": "Aggiungi in FRASE",
+    "OUT_OF_INTENT_TERM": "Fuori intento per promozione",
 }
 # ------------------------------------------------------------------ Lancio nuovo libro (bozza locale, nessuna rete)
 LAUNCH_PAGE_TITLE = "Lancio nuovo libro"
@@ -234,6 +240,9 @@ OPP_SECTION_CONFLICT = "D · CONFLITTI DA VERIFICARE"
 OPP_SECTION_PROMOTED = "E · GIÀ PROMOSSE IN EXACT"
 OPP_SECTION_PRODUCT = "F · TARGET PRODOTTO VINCENTE"
 OPP_SECTION_PHRASE = "G · DA AGGIUNGERE IN FRASE"
+OPP_SECTION_INTENT = "H · FUORI INTENTO PER PROMOZIONE"
+OPP_INTENT_NOTE = ("Hanno convertito, ma la query indica un intento di acquisto diverso dal contenuto del libro (abbigliamento, merchandising, altri oggetti): non vengono "
+                   "promosse in FRASE o EXACT. Non sono per questo negative. Per un libro che le riguarda puoi sbloccarle con intent.book_allow in rules.json.")
 OPP_KPI_EXACT = "OPPORTUNITÀ EXACT"
 OPP_KPI_NEGATIVE = "CANDIDATI NEGATIVI"
 OPP_NEW_CAMPAIGN = "Valuta creazione campagna EXACT"
@@ -242,7 +251,7 @@ OPP_NEW_CAMPAIGN_TEXT = ("Ci sono almeno {n} termini di ricerca unici da promuov
 OPP_AGREEMENT_LABELS = {"CONCORDI": "Finestre concordi", "DISCORDI": "Finestre discordanti", "SOLO_UNA_FINESTRA": "Una sola finestra",
                         "SOLO_65D": "Solo 65 giorni (30 giorni non importato)", "NON_CONFERMATO_30D": "Non confermato negli ultimi 30 giorni",
                         "ASSENTE_30D": "Nessuna attività negli ultimi 30 giorni"}
-OPP_FLAG_LABELS = {"AUTO_STRONG_WINNER": "Vincitore AUTO forte", "AUTO_MODERATE_WINNER": "Vincitore AUTO moderato",
+OPP_FLAG_LABELS = {"OUT_OF_INTENT": "Fuori intento per promozione", "AUTO_STRONG_WINNER": "Vincitore AUTO forte", "AUTO_MODERATE_WINNER": "Vincitore AUTO moderato",
                    "ALREADY_IN_EXACT": "Già in EXACT", "EXACT_PAUSED": "Keyword EXACT in pausa", "DUPLICATE_ACROSS_CAMPAIGNS": "Presente in più campagne",
                    "MULTI_PARENT_TARGET": "Catturato da più target", "TERM_EQUALS_PARENT_TARGET": "Coincide con il target padre",
                    "NEGATIVE_EXACT": "Già negativa esatta", "NEGATIVE_PHRASE": "Già negativa a frase", "ALREADY_NEGATIVE": "Già negativa",

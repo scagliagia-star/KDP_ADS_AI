@@ -540,6 +540,26 @@ def account_text(account_id, names: dict | None = None) -> str | None:
     return f"Account: {name} · {account_id}" if name else f"Account: {account_id}"
 
 
+def campaign_text(name, amazon_campaign_id, max_len: int = 44, internal_id=None, show_legacy: bool = False) -> str | None:
+    """«Campagna: nome… · ID 1234» (testo secondario) per distinguere campagne dello stesso tipo (piu' AUTO, piu' FRASE...). Una campagna storica senza ID Amazon mostra il nome
+    interno («storica, senza ID Amazon») solo se `show_legacy` (cioe' se il libro ha piu' campagne dello stesso tipo): niente rumore quando non serve."""
+    nm = str(name or "").strip() or str(internal_id or "").strip()
+    nm = nm if len(nm) <= max_len else nm[:max_len - 1].rstrip() + "…"
+    if amazon_campaign_id:
+        return f"Campagna: {nm} · ID {amazon_campaign_id}" if nm else f"Campagna ID {amazon_campaign_id}"
+    if show_legacy and nm:
+        return f"Campagna: {nm} · storica, senza ID Amazon"
+    return None
+
+
+def ambiguous_campaign_types(decisions) -> set:
+    """Tipi di campagna con PIU' di una campagna nel libro (es. due AUTO): lì l'identificazione della campagna serve sempre, anche per le storiche."""
+    seen = {}
+    for d in decisions:
+        seen.setdefault(str(d.get("campaign_type") or ""), set()).add(d.get("campaign_id"))
+    return {t for t, ids in seen.items() if len(ids) > 1}
+
+
 def build_overview(decisions: list, book: dict, summary: dict, warnings: list, opp: dict | None, parse_detail=None, symbol="$", account_names: dict | None = None) -> dict:
     """Tutte le sezioni e i KPI. `opp` = risultato di Repo.search_term_opportunities (None se non calcolabile). I KPI sono len() delle liste.
     Ogni scheda riporta il proprio ACCOUNT Amazon Ads (campo `account`) quando noto: con piu' account una decisione non e' mai anonima."""
@@ -599,12 +619,19 @@ def build_overview(decisions: list, book: dict, summary: dict, warnings: list, o
         by_word[c["badge"]] = by_word.get(c["badge"], 0) + 1
     names = {d["amazon_account_id"]: d.get("amazon_account_name") for d in decisions if d.get("amazon_account_id") and d.get("amazon_account_name")}
     names.update(account_names or {})
+    multi = ambiguous_campaign_types(decisions)
     for lst in cards.values():
         for c in lst:
-            c["account"] = account_text((c.get("decision") or {}).get("amazon_account_id"), names)
+            dd = c.get("decision") or {}
+            c["account"] = account_text(dd.get("amazon_account_id"), names)
+            c["campaign_line"] = campaign_text(dd.get("campaign_name"), dd.get("amazon_campaign_id"), internal_id=dd.get("campaign_id"),
+                                               show_legacy=str(dd.get("campaign_type") or "") in multi)
     for lst in (exact_items, neg_items, conflicts, promoted, products):
         for it in lst or []:
-            it["account"] = account_text((it.get("record") or {}).get("amazon_account_id"), names)
+            rr = it.get("record") or {}
+            it["account"] = account_text(rr.get("amazon_account_id"), names)
+            it["campaign_line"] = campaign_text(rr.get("campaign_name"), rr.get("amazon_campaign_id"), internal_id=rr.get("campaign_id"),
+                                                show_legacy=str(rr.get("campaign_type") or "") in multi)
     return {"has_actionable_field": has_flag, "kpi": kpi, **cards, "delivery_shown": delivery[:MAX_DELIVERY_HOME], "exact": exact_items, "exact_shown": (exact_items or [])[:MAX_ITEMS],
             "exact_new_campaign": new_campaign, "exact_suggestion": (opp or {}).get("new_exact_campaign"), "negatives": neg_items,
             "conflicts": conflicts, "already_negative": already_neg, "promoted": promoted, "products": products,

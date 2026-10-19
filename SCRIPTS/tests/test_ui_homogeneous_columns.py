@@ -81,7 +81,8 @@ class UiColumnTests(unittest.TestCase):
         self.assertEqual(d, before)                                                # tipi del motore/DB invariati
 
 
-REAL_DB = ROOT / "DATABASE" / "kdp_ads.db"
+import realdata  # noqa: E402  (snapshot deterministico dei dati storici: vedi realdata.py)
+REAL_DB = realdata.snapshot()
 
 
 @unittest.skipIf(AppTest is None, "streamlit non installato")

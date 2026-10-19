@@ -30,9 +30,11 @@ def kpis(st, ov):
 
 
 def _acct(st, c):
-    """Riga ACCOUNT di una scheda (solo se l'account e' noto)."""
+    """Identificazione della scheda: ACCOUNT, poi CAMPAGNA (nome e ID Amazon) quando noti. Gerarchia: account > campagna > target / search term (testo secondario)."""
     if c.get("account"):
         st.caption(c["account"])
+    if c.get("campaign_line"):
+        st.caption(c["campaign_line"])
 
 
 def _see_all(st):

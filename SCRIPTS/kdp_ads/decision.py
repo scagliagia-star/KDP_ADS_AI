@@ -116,6 +116,20 @@ def _account_of(conn, book_id, rows) -> dict:
     return {cid: (a, names.get(a)) for cid, a in out.items()}
 
 
+def _amazon_campaign_ids(conn, book_id, rows) -> dict:
+    """{campaign_id interno: ID campagna Amazon} dal mapping confermato (con ripiego sulle righe dati). Le campagne storiche senza ID Amazon restano assenti."""
+    out = {}
+    try:
+        for r in conn.execute("SELECT campaign_id, amazon_campaign_id FROM campaign_book_mapping WHERE book_id=? AND status='ASSIGNED' AND campaign_id IS NOT NULL", (book_id,)):
+            out[r[0]] = r[1]
+    except Exception:                                       # DB senza la tabella (schema precedente)
+        pass
+    for r in rows:
+        if r.get("amazon_campaign_id"):
+            out.setdefault(r["campaign_id"], r["amazon_campaign_id"])
+    return out
+
+
 def map_target_status(raw_json) -> str:
     try:
         raw = json.loads(raw_json) if raw_json else {}
@@ -250,6 +264,7 @@ class DecisionSet:
     amazon_campaign_level: list = field(default_factory=list)
     amazon_campaign_notes: list = field(default_factory=list)
     camp_ctx: dict = field(default_factory=dict)
+    amz_cid_of: dict = field(default_factory=dict)          # campaign_id interno -> ID campagna Amazon (assente = campagna legacy senza ID Amazon)
     acct_of: dict = field(default_factory=dict)             # campaign_id interno -> (ID account Amazon Ads, nome account) (assente = legacy_account_unknown)
 
     @property
@@ -334,6 +349,7 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
     srows, bad_st = split_search_terms(srows)                           # metriche impossibili: escluse (cross-campaign/CVR), avviso dati
     ds.warnings += impossible_warnings(bad_st)
     ds.acct_of = _account_of(conn, book_id, trows + srows)          # ogni decisione risale al suo account Amazon Ads
+    ds.amz_cid_of = _amazon_campaign_ids(conn, book_id, trows + srows)      # ...e alla sua campagna Amazon (ID), per distinguere campagne dello stesso tipo
     for r in srows:
         r["target_type"] = target_type(r["target"], r.get("campaign_type"))
     bid_of = {}
@@ -850,7 +866,7 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
         "decision_id": None, "action_key": e.key, "run_id": None, "analysis_run_id": analysis_run_id, "generated_at": now,
         "book_id": book_id, "marketplace": ctx.marketplace, "campaign_id": e.campaign_id, "campaign_name": base_rec["campaign_name"],
         "campaign_type": base_rec["campaign_type"], "amazon_account_id": (ds.acct_of.get(e.campaign_id) or (None, None))[0],
-        "amazon_account_name": (ds.acct_of.get(e.campaign_id) or (None, None))[1], "target": e.target, "target_type": tgt_type,
+        "amazon_account_name": (ds.acct_of.get(e.campaign_id) or (None, None))[1], "amazon_campaign_id": ds.amz_cid_of.get(e.campaign_id), "target": e.target, "target_type": tgt_type,
         "match_type": base_rec["match_type"] if e.kind != "neg" else None,
         "search_term": negs[0].rec["search_term"] if negs else None,
         "current_bid": match_row["bid"] if match_row else None,

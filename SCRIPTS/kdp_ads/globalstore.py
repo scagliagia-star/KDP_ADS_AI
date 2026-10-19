@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS campaign_book_mapping (
     book_id TEXT, marketplace TEXT, campaign_id TEXT, campaign_type TEXT,
     suggested_book_id TEXT, suggestion_confidence TEXT, suggestion_reason TEXT,
     first_seen TEXT, last_seen TEXT, account_name_last_seen TEXT, campaign_name_last_seen TEXT, portfolio_id_last_seen TEXT, portfolio_last_seen TEXT, ad_group_last_seen TEXT,
-    detected_type TEXT, backfill_of TEXT, legacy_account_confirmed INTEGER NOT NULL DEFAULT 0, assigned_at TEXT, updated_at TEXT,
+    detected_type TEXT, detected_kind TEXT, backfill_of TEXT, legacy_account_confirmed INTEGER NOT NULL DEFAULT 0, assigned_at TEXT, updated_at TEXT,
     UNIQUE (account_id, amazon_campaign_id)
 );
 CREATE INDEX IF NOT EXISTS ix_cbm_book_acct ON campaign_book_mapping(book_id, status);
@@ -120,6 +120,7 @@ def ensure_schema(conn) -> None:
     _add_columns(conn, "global_report_imports", [("account_name", "TEXT")])
     _add_columns(conn, "global_report_rows", [("account_id", "TEXT"), ("account_name", "TEXT")])
     _migrate_mapping_account_scope(conn)
+    _add_columns(conn, "campaign_book_mapping", [("detected_kind", "TEXT")])           # tipo letto (AUTO / PHRASE / EXACT / COMPETITOR / AMBIGUOUS)
     for table in ("target_rows", "search_term_rows"):
         _add_columns(conn, table, ROW_EXTRA_COLUMNS)
     _add_columns(conn, "campaigns", CAMPAIGN_EXTRA_COLUMNS)
@@ -382,19 +383,19 @@ def stage_file(conn, parsed: dict, window_label: str, marketplace: str, books: d
                 new += 1
                 conn.execute(
                     "INSERT INTO campaign_book_mapping (account_id,amazon_campaign_id,status,marketplace,campaign_type,suggested_book_id,suggestion_confidence,suggestion_reason,first_seen,"
-                    "last_seen,account_name_last_seen,campaign_name_last_seen,portfolio_id_last_seen,portfolio_last_seen,ad_group_last_seen,detected_type,updated_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "last_seen,account_name_last_seen,campaign_name_last_seen,portfolio_id_last_seen,portfolio_last_seen,ad_group_last_seen,detected_type,detected_kind,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (ak, cid, "UNASSIGNED", mp, s["campaign_type"], sug, conf, why, s["first"] or d_from, s["last"] or d_to, acct_name, s["name"], s["portfolio_id"],
-                     s["portfolio_name"], ", ".join(s["ad_groups"][:3]) or None, s["campaign_type"], now))
+                     s["portfolio_name"], ", ".join(s["ad_groups"][:3]) or None, s["campaign_type"], s.get("campaign_kind"), now))
             else:
                 # il NOME puo' cambiare: la chiave e' l'ID. last_seen e nomi si aggiornano; stato e associazione NON si toccano.
                 conn.execute(
                     "UPDATE campaign_book_mapping SET last_seen=MAX(COALESCE(last_seen,''),?), first_seen=MIN(COALESCE(first_seen,?),?), campaign_name_last_seen=?, portfolio_id_last_seen=?, "
-                    "portfolio_last_seen=?, ad_group_last_seen=?, detected_type=?, updated_at=?, account_name_last_seen=COALESCE(?, account_name_last_seen), "
+                    "portfolio_last_seen=?, ad_group_last_seen=?, detected_type=?, detected_kind=?, updated_at=?, account_name_last_seen=COALESCE(?, account_name_last_seen), "
                     "suggested_book_id=CASE WHEN status='UNASSIGNED' THEN ? ELSE suggested_book_id END, suggestion_confidence=CASE WHEN status='UNASSIGNED' THEN ? ELSE suggestion_confidence END, "
                     "suggestion_reason=CASE WHEN status='UNASSIGNED' THEN ? ELSE suggestion_reason END WHERE account_id=? AND amazon_campaign_id=?",
                     (s["last"] or d_to, s["first"] or d_from, s["first"] or d_from, s["name"], s["portfolio_id"], s["portfolio_name"], ", ".join(s["ad_groups"][:3]) or None,
-                     s["campaign_type"], now, acct_name, sug, conf, why, ak, cid))
+                     s["campaign_type"], s.get("campaign_kind"), now, acct_name, sug, conf, why, ak, cid))
     return {"status": "REPLACED" if act else "IMPORTED", "gimport_id": gid, "account_id": acct, "account_name": acct_name, "new_campaigns": new, "rows": parsed["row_count"], "campaigns": len(summ), "period_id": pid,
             "affected": affected, "superseded": act["gimport_id"] if act else None, "revision": revision_no,
             "message": f"{parsed['file_name']} [account {acct_name or acct}]: {parsed['row_count']} righe, {len(summ)} campagne ({new} nuove)" + (" · versione precedente archiviata (SUPERSEDED)" if act else "")}
@@ -615,7 +616,7 @@ def backfill_candidates(conn) -> list:
         rivals_l = [x for x in mine[1:] if x[0][1] >= R["rival_cont"]]
         rivals_a = [a for (a, k2), v in overlap.items() if k2 == lk and a != aid and v[1] >= R["rival_cont"]]
         reasons = []
-        if m["detected_type"] == "OTHER":
+        if m["detected_type"] == "OTHER" and m.get("detected_kind") != "AMBIGUOUS":
             reasons.append("campagna AUTO: i 4 gruppi sono identici in ogni campagna, non dimostrabile")
         if shared < R["min_shared"]:
             reasons.append(f"solo {shared} target distintivi in comune (servono {R['min_shared']})")

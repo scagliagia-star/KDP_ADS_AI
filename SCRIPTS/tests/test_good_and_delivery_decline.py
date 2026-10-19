@@ -121,7 +121,8 @@ class RelativeDeliveryDeclineTests(unittest.TestCase):
         self.assertEqual(len(ov["all_ids"]), 1)
 
 
-REAL_DB = ROOT / "DATABASE" / "kdp_ads.db"
+import realdata  # noqa: E402  (snapshot deterministico dei dati storici: vedi realdata.py)
+REAL_DB = realdata.snapshot()
 
 
 @unittest.skipIf(AppTest is None, "streamlit non installato")
@@ -147,7 +148,7 @@ class RealCalisthenicsTests(unittest.TestCase):
         if cls.ok:
             from kdp_ads.config import CONFIG_DIR, load_mapping, load_settings
             from kdp_ads.pipeline import run_analysis, run_decisions
-            lg, s = logging.getLogger("t"), load_settings()
+            lg, s = logging.getLogger("t"), realdata.settings()
             ra = run_analysis(s, load_mapping(), CONFIG_DIR / "rules.json", "B0GNZFLXCV", Path(cls.tmp.name) / "out", lg, save_db=True, conn=dst, marketplace="US")
             rd = run_decisions(s, CONFIG_DIR / "rules.json", "B0GNZFLXCV", Path(cls.tmp.name) / "out", lg, ra["run_id"], save_db=True, conn=dst, marketplace="US")
             dst.commit()

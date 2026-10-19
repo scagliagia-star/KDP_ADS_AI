@@ -75,7 +75,7 @@ def stats_line(m):
 
 def campaign_head(m):
     """Intestazione SEMPRE completa: account (nome e ID), ID campagna, nome campagna, portfolio e stato del mapping."""
-    st.markdown(f"**{F.esc(m['campaign_name_last_seen'] or m['amazon_campaign_id'])}** · ID campagna `{m['amazon_campaign_id']}` · {F.badge(m['detected_type'] or 'n/d', 'grey')} "
+    st.markdown(f"**{F.esc(m['campaign_name_last_seen'] or m['amazon_campaign_id'])}** · ID campagna `{m['amazon_campaign_id']}` · {F.badge(U.CAMPAIGN_KIND_LABELS.get(m.get('detected_kind')) or ('AUTO' if m['detected_type'] == 'OTHER' else U.CAMPAIGN_TYPE_LABELS.get(m['detected_type'], m['detected_type'] or 'n/d')), 'grey')} "
                 f"· {F.badge('stato: ' + {'UNASSIGNED': 'da associare', 'ASSIGNED': 'associata', 'IGNORED': 'ignorata'}.get(m['status'], m['status']), 'blue')}", unsafe_allow_html=True)
     st.caption(f"ACCOUNT: {acct_label(m['account_id'], m.get('account_name_last_seen'))} · Portfolio: {m['portfolio_last_seen'] or 'nessuno'}")
 
@@ -168,9 +168,14 @@ with tabs[0]:
                             b = st.selectbox("Libro", opts, index=d_i, format_func=lambda x: titles[x], key=kk("ca_b", acc, cid))
                             st.caption("Una campagna Amazon nuova diventa SEMPRE una campagna nuova: due Campaign ID diverse non vengono mai fuse, nemmeno nello stesso libro, e lo stesso ID in "
                                        "un altro account è un'altra campagna. Lo storico (Lifetime) di una campagna vecchia si collega solo con un BACKFILL dimostrato e confermato (vedi sopra).")
-                            types = ["PHRASE", "EXACT", "COMPETITOR", "OTHER"]
-                            ctype = st.selectbox("Tipo campagna (solo per una campagna nuova)", types, index=types.index(m["detected_type"]) if m["detected_type"] in types else 0,
-                                                 key=kk("ca_t", acc, cid))
+                            types = ["PHRASE", "EXACT", "COMPETITOR", "AUTO", "OTHER"]
+                            kind = m.get("detected_kind") or ("AUTO" if m["detected_type"] == "OTHER" else m["detected_type"])       # righe vecchie senza tipo letto: OTHER era sempre AUTO
+                            pre = kind if kind in types[:4] else ("OTHER" if kind == "AMBIGUOUS" else (m["detected_type"] if m["detected_type"] in types else "PHRASE"))
+                            ctype_ui = st.selectbox("Tipo campagna (solo per una campagna nuova)", types, index=types.index(pre), key=kk("ca_t", acc, cid),
+                                                    format_func=lambda x: U.CAMPAIGN_TYPE_LABELS.get(x, x))
+                            ctype = U.UI_TYPE_TO_CODE.get(ctype_ui, ctype_ui)
+                            if kind == "AMBIGUOUS":
+                                st.caption("Tipo non determinabile dai dati o dal nome: scegli tu il tipo (nessun tipo viene inventato).")
                             a1, a2 = st.columns(2)
                             if a1.button("ASSOCIA A LIBRO ESISTENTE", key=kk("ca_go", acc, cid)) is True:
                                 flash_and_rerun(GI.associate(ws, cid, b, None, ctype, account_id=acc), "Campagna associata")
@@ -200,6 +205,6 @@ with tabs[2]:
         st.caption("Nessuna campagna associata.")
     else:
         st.dataframe([{"Account": acct_label(m["account_id"], m.get("account_name_last_seen")), "Libro": titles.get(m["book_id"], m["book_id"]), "Marketplace": m["marketplace"],
-                       "Campagna interna": m["campaign_id"], "Tipo": m["campaign_type"], "Nome in Amazon": m["campaign_name_last_seen"], "ID campagna Amazon": m["amazon_campaign_id"],
+                       "Campagna interna": m["campaign_id"], "Tipo": ("AUTO" if m["campaign_type"] == "OTHER" and m.get("detected_kind") in (None, "AUTO") else U.CAMPAIGN_TYPE_LABELS.get(m["campaign_type"], m["campaign_type"])), "Nome in Amazon": m["campaign_name_last_seen"], "ID campagna Amazon": m["amazon_campaign_id"],
                        "Portfolio": m["portfolio_last_seen"] or "n/d", "Stato": "associata"} for m in asg], use_container_width=True, hide_index=True)
     st.caption("Un'associazione già confermata non viene cambiata in silenzio.")
