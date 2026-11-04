@@ -2,7 +2,7 @@
 Amazon Ads; i codici tecnici compaiono SOLO in PERCHÉ? > DETTAGLIO TECNICO. Le collezioni arrivano da data_access.overview.build_overview."""
 import formatting as F
 import ui_labels as U
-from components import trend_ui
+from components import manual_ui, trend_ui
 from data_access import overview as O
 
 
@@ -42,6 +42,16 @@ def _see_all(st):
         st.page_link("pages/9_Opportunita_Search_Term.py", label=U.OV_SEE_ALL_OPP)
     except Exception:                                    # pagina non registrata (es. esecuzione isolata): testo semplice
         st.caption(U.OV_SEE_ALL_OPP + " (menu a sinistra)")
+
+
+def _previous(st, c):
+    """Per una NUOVA AZIONE DOPO MODIFICA PRECEDENTE: ultima azione registrata e nuova raccomandazione."""
+    m = c.get("manual")
+    if not (c.get("new_after") and m and m.get("last_text")):
+        return
+    st.markdown(f"{F.badge(O.NEW_AFTER_BADGE, 'orange')}", unsafe_allow_html=True)
+    st.markdown(f"**Ultima azione registrata:** {m['last_text']}")
+    st.markdown(f"**Nuova raccomandazione:** {c['headline']}" + (f" ({F.money(c['bid']['current'])} → {F.money(c['bid']['suggested'])})" if c.get("bid") else ""))
 
 
 # ------------------------------------------------------------------ PERCHÉ? (dettaglio completo; i codici solo in fondo)
@@ -90,6 +100,7 @@ def action_card(st, c, book):
         st.markdown(f"## {c['headline']}")
         st.markdown(f"**{F.esc(c['title'])}** · {U.label_priority(c['priority']) if c['priority'] else F.ND}")
         _acct(st, c)
+        _previous(st, c)
         if c["bid"]:
             b = c["bid"]
             m = st.columns(3)
@@ -107,9 +118,13 @@ def action_card(st, c, book):
         m[4].metric(f"ACOS ultimi {a['tactical_days']} giorni", _acos(a["tactical"]))
         m[5].metric("Affidabilità", U.label_confidence(c["confidence"]))
         trend_ui.line(st, d)
+        if d.get("recent_clicks") is not None and (O.window_days(d.get("recent_window"), 65) or 0) > 35:
+            st.caption(f"Contesto {a['recent_days']}D: {F.num(d.get('recent_clicks'))} clic · {F.num(d.get('recent_orders'))} acquisti · ACOS {_acos(d.get('recent_acos'))} "
+                       "(contesto intermedio: non decide da solo)")
         if c.get("underlying"):
             st.caption(f"Azione potenziale conservata: {O.simple_action({'final_action': c['underlying']})['word'].lower()}.")
         why(st, d, book)
+        manual_ui.register_box(st, c.get("register"), f"d_{c['id']}")
 
 
 def today(st, ov, book):
@@ -129,8 +144,28 @@ def today(st, ov, book):
         st.info("Questo run è precedente al campo «azionabile ora»: la sezione non è disponibile per questo run.")
     elif not ov["actions"]:
         st.success("Nessuna decisione da valutare ora su offerte o pause in questo run.")
-    for c in ov["actions"]:
+    for c in ov.get("actions_todo", ov["actions"]):
         action_card(st, c, book)
+    if ov.get("actions_new_after"):
+        st.subheader(f"{U.OV_NEW_AFTER} ({len(ov['actions_new_after'])})")
+        st.caption("Hai già modificato questo target, ma i nuovi dati giustificano un'altra azione.")
+        for c in ov["actions_new_after"]:
+            action_card(st, c, book)
+
+
+def done_section(st, ov):
+    """GIÀ ESEGUITO: azioni gia' registrate come eseguite a mano e quindi NON riproposte in «COSA FARE OGGI». Consultabili, mai nascoste."""
+    items = ov.get("done") or []
+    if not items:
+        return
+    with st.expander(f"{U.OV_DONE} ({len(items)})", expanded=False):
+        st.caption("Azioni che hai registrato come eseguite: non vengono riproposte. Se i nuovi dati le richiedono di nuovo con un valore diverso, tornano in «DA FARE».")
+        for i in items:
+            with st.container(border=True):
+                st.markdown(f"{F.badge(i['badge'], 'green')} **{F.esc(str(i['title']))}**" + (f" · {F.esc(str(i['headline']))}" if i.get("headline") else ""), unsafe_allow_html=True)
+                _acct(st, i)
+                st.markdown(f"ESEGUITA IL {i['executed_text']}")
+                manual_ui.undo_button(st, i.get("action_id"))
 
 
 # ------------------------------------------------------------------ opportunita' Search Term
@@ -143,6 +178,7 @@ def _opp_line(st, i):
     st.markdown(f"Clic {F.num(i['clicks'])} · Acquisti {F.num(i['orders'])} · Spesa {F.money(i['spend'])} · Vendite {F.money(i['sales'])} · "
                 f"ACOS {F.acos(i['acos'])} · Affidabilità {U.label_confidence(i['confidence'])}")
     st.markdown(f"_{i['reason']}_")
+    manual_ui.register_box(st, i.get("register"), f"{i['kind']}_{i['campaign']}_{i['term']}")
 
 
 def exact_section(st, ov):
@@ -209,7 +245,7 @@ def products_section(st, ov):
     st.header(U.OV_PRODUCTS)
     for i in items:
         with st.container(border=True):
-            st.markdown(f"{F.badge(i['badge'], 'green')} **ASIN {F.esc(i['asin'])}**", unsafe_allow_html=True)
+            st.markdown(f"{F.badge(i['badge'], 'green' if i.get('winner', True) else 'orange')} **ASIN {F.esc(i['asin'])}**", unsafe_allow_html=True)
             _acct(st, i)
             st.caption(f"Campagna: {i['campaign']} · Stato target: {U.label_status(i['status'])}")
             st.markdown(f"Clic {F.num(i['clicks'])} · Acquisti {F.num(i['orders'])} · Spesa {F.money(i['spend'])} · Vendite {F.money(i['sales'])} · "
@@ -219,7 +255,7 @@ def products_section(st, ov):
             if op:
                 st.markdown(f"**STATO OPERATIVO DEL TARGET:** {F.badge(op['word'], 'yellow' if op['word'] == 'MONITORA' else 'grey')}", unsafe_allow_html=True)
                 st.markdown(op["text"])
-            st.caption("È un target per prodotto, non una keyword: non si promuove in EXACT.")
+            st.caption("È un target per prodotto, non una keyword: non si promuove in EXACT." + (" Vincente solo se regge anche il target complessivo (30D)." if i.get("winner", True) else ""))
 
 
 def conflicts_section(st, ov):
@@ -269,6 +305,9 @@ def delivery_section(st, ov, book=None):
             st.markdown(f"Offerta {F.money(i['bid'])} · Impressioni ultimi {i['days']} giorni: **{F.num(i['impressions_30d'])}** · "
                         f"Clic: {F.num(i['clicks_30d'])} · Stato target: {U.label_status(i['status'])}")
             st.markdown(f"_{i['reason']}_")
+            if i.get("advice"):
+                adv = i["advice"]
+                st.markdown(f"{F.badge(adv['label'], {'TEST_PLUS_5': 'green', 'DO_NOT_RAISE': 'red'}.get(adv['code'], 'yellow'))} {F.esc(adv['text'])}", unsafe_allow_html=True)
             if book is not None:
                 why(st, i["decision"], book)                  # il riferimento di campagna sta solo qui (PERCHÉ? / DETTAGLIO TECNICO)
 

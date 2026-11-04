@@ -63,8 +63,9 @@ def main():
         body = w.replace("DATA_WARNING ", "", 1)
         if not any(body[:60] in (x.get("text") or "") for x in warnings):
             warnings.append({"origin": "opportunità Search Term", "campaign": None, "text": w, "kind": "DATA_WARNING", "severity": "n/d"})
-    ov = O.build_overview(decisions, b, ctx.summary, warnings, opp, parse_delivery_detail, sym(), names)
-    growth = G.build_growth(decisions, (opp or {}).get("records", []), b, G.config(ctx.repo.rules()), warnings)
+    executed = ctx.repo.manual_actions(b["book_id"], ctx.marketplace) if hasattr(ctx.repo, "manual_actions") else []     # registro azioni manuali (sola lettura)
+    ov = O.build_overview(decisions, b, ctx.summary, warnings, opp, parse_delivery_detail, sym(), names, executed)
+    growth = O.filter_growth(G.build_growth(decisions, (opp or {}).get("records", []), b, G.config(ctx.repo.rules()), warnings), b, executed)
 
     st.divider()
     st.header(U.OV_KPI_TITLE)
@@ -72,6 +73,7 @@ def main():
 
     st.divider()
     overview_ui.today(st, ov, b)
+    overview_ui.done_section(st, ov)
     st.divider()
     overview_ui.exact_section(st, ov)
     st.divider()

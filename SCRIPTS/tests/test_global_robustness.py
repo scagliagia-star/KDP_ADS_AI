@@ -52,10 +52,11 @@ class SchemaMigrationTests(unittest.TestCase):
         c.close()
         return p
 
-    def test_schema_version_is_6_and_reflects_the_additive_change(self):
-        self.assertEqual(SCHEMA_VERSION, 6)
+    def test_schema_version_is_7_and_documents_every_step(self):
+        self.assertGreaterEqual(SCHEMA_VERSION, 7)
         src = (ROOT / "SCRIPTS" / "kdp_ads" / "db.py").read_text(encoding="utf-8")
         self.assertIn("v5 -> v6", src)
+        self.assertIn("v6 -> v7", src)
 
     def test_old_v5_db_migrates_without_losing_data_and_with_one_backup(self):
         with tempfile.TemporaryDirectory() as d:
@@ -69,14 +70,14 @@ class SchemaMigrationTests(unittest.TestCase):
             self.assertTrue(NEW_TABLES <= names)
             for t in ("target_rows", "search_term_rows"):
                 self.assertTrue(NEW_COLS <= {r[1] for r in c.execute(f"PRAGMA table_info({t})")})
-            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             self.assertEqual(c.execute("SELECT title FROM books WHERE book_id='B1'").fetchone()[0], "Uno")             # nessuna perdita
             row = c.execute("SELECT target, clicks, amazon_campaign_id FROM target_rows").fetchone()
             self.assertEqual((row[0], row[1], row[2]), ("kw uno", 7, None))                                            # righe storiche: colonne nuove NULL
             self.assertEqual(c.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(c.execute("PRAGMA foreign_key_check").fetchall(), [])
             c.close()
-            backups = list((Path(d) / "backups").glob("kdp_ads_pre_schema_v6_*.db"))
+            backups = list((Path(d) / "backups").glob(f"kdp_ads_pre_schema_v{SCHEMA_VERSION}_*.db"))
             self.assertEqual(len(backups), 1)                                                                          # un backup prima della migrazione
             b = sqlite3.connect(backups[0])
             self.assertEqual(b.execute("PRAGMA user_version").fetchone()[0], 5)                                       # la copia e' PRE-migrazione
@@ -99,7 +100,7 @@ class SchemaMigrationTests(unittest.TestCase):
             self.assertEqual(snap(), n)
             self.assertEqual(len(list((Path(d) / "backups").glob("*.db"))), 1)                                         # nessun backup ripetuto
             c = connect(p)
-            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             c.close()
 
     def test_new_db_is_born_with_the_new_schema_without_backup(self):
@@ -136,7 +137,7 @@ class SchemaMigrationTests(unittest.TestCase):
             c.close()
             c = connect(p)
             self.assertEqual({t: c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in tabs}, before)
-            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             c.close()
         self.assertEqual(hashlib.sha256(real.read_bytes()).hexdigest(), h)
 

@@ -32,7 +32,8 @@ st.subheader(f"Target attivi da verificare ({len(full)})")
 st.caption("Elenco COMPLETO (nella Panoramica compaiono solo i più rilevanti): nessuna erogazione, pochissime impressioni o forte calo delle impressioni.")
 if full:
     st.dataframe([{"Campagna": i["campaign"], "Target": i["target"], "Verifica": i["badge"], "Offerta": F.money(i["bid"]),
-                   f"Impressioni ultimi {i['days'] or 30} giorni": F.num(i["impressions_30d"]), "Clic": F.num(i["clicks_30d"]), "Motivo": i["reason"]} for i in full],
+                   f"Impressioni ultimi {i['days'] or 30} giorni": F.num(i["impressions_30d"]), "Clic": F.num(i["clicks_30d"]), "Motivo": i["reason"],
+                   "Cosa fare": (i["advice"]["label"] if i.get("advice") else "Verifica")} for i in full],
                  use_container_width=True, hide_index=True)
 else:
     st.success("Nessun target attivo con problemi di erogazione.")

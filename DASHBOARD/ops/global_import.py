@@ -107,7 +107,7 @@ def list_imports(ws) -> list:
 
 
 # ------------------------------------------------------------------ anteprima
-def preview(ws, files: dict, marketplace: str | None = None, date_to: date | None = None) -> dict:
+def preview(ws, files: dict, marketplace=None, date_to: date | None = None) -> dict:
     """files = {slot: (nome, bytes)}. Nessuna scrittura. Ritorna {slot: {"preview": {...}} | {"error": "..."}}."""
     conn = read_conn(ws)
     books = books_dict(ws)
@@ -155,7 +155,7 @@ def recalculate(ws, pairs, conn=None, logger=None) -> list:
     return out
 
 
-def run_import(ws, files: dict, marketplace: str | None = None, date_to: date | None = None, recalc: bool = True, replace=()) -> OpResult:
+def run_import(ws, files: dict, marketplace=None, date_to: date | None = None, recalc: bool = True, replace=()) -> OpResult:
     """Importa i report globali (slot -> (nome, bytes)). Importa tutte le campagne note; quelle nuove restano UNASSIGNED; un file non valido NON blocca gli altri.
     UN solo backup prima della prima scrittura, anche con 4 file.
     `replace` = slot per cui l'utente ha CONFERMATO «USA VERSIONE PIU' RECENTE» (stesso snapshot logico, contenuto diverso). Senza conferma una revisione non viene
@@ -182,8 +182,9 @@ def run_import(ws, files: dict, marketplace: str | None = None, date_to: date | 
             pvw = todo[slot]
             try:
                 parsed = G.parse_global_report(name, data)
-                r = GS.stage_file(conn, parsed, SLOTS[slot][1], pvw["marketplace"], books, date_to, replace=slot in replace)
+                r = GS.stage_file(conn, parsed, SLOTS[slot][1], marketplace, books, date_to, replace=slot in replace)     # un file puo' dare PIU' snapshot (US + UK)
                 books_to_recalc |= r.get("affected") or set()            # libri che perdono i dati della versione sostituita
+                conflicts += r.get("conflicts") or []
                 results.append({"slot": slot, "file": name, **r, "preview": pvw})
             except (GS.GlobalImportError, G.GlobalReportError) as e:
                 errors.append(f"{SLOT_LABELS[slot]}: {e}")
@@ -204,7 +205,7 @@ def run_import(ws, files: dict, marketplace: str | None = None, date_to: date | 
 
 # ------------------------------------------------------------------ associazioni
 def associate(ws, amazon_campaign_id, book_id, internal_campaign_id=None, campaign_type=None, marketplace=None, recalc=True, backfill_of=None, account_id=None,
-              confirm_legacy_account=False) -> OpResult:
+              confirm_legacy_account=False, confirm_legacy_marketplace=False) -> OpResult:
     """Associazione CONFERMATA dall'utente. Smista i dati parcheggiati e ricalcola il libro (senza reimport). Una campagna Amazon nuova e' SEMPRE una campagna interna nuova;
     `backfill_of` (id storico) e' accettato solo con prova forte (GS.backfill_candidates livello ALTA)."""
     bk = backup_db(ws, "associa_campagna")
@@ -212,7 +213,7 @@ def associate(ws, amazon_campaign_id, book_id, internal_campaign_id=None, campai
     logger, _ = setup_logger(ws.logs_dir, "global_associate")
     try:
         r = GS.associate(conn, ws.settings, amazon_campaign_id, book_id, marketplace, internal_campaign_id, campaign_type, backfill_of=backfill_of, account_id=account_id,
-                         confirm_legacy_account=confirm_legacy_account)
+                         confirm_legacy_account=confirm_legacy_account, confirm_legacy_marketplace=confirm_legacy_marketplace)
         rec = recalculate(ws, r["books"], conn, logger) if recalc and r["books"] else []
         return OpResult(True, [], "Campagna collegata alla campagna storica (backfill)" if backfill_of else "Campagna associata", {**r, "recalc": rec, "backup": str(bk) if bk else None})
     except (GS.GlobalImportError, registry.RegistryError) as e:
@@ -233,7 +234,8 @@ def associate_many(ws, items: list, recalc=True) -> OpResult:
         for it in items:
             try:
                 r = GS.associate(conn, ws.settings, it["amazon_campaign_id"], it["book_id"], it.get("marketplace"), it.get("internal_campaign_id"), it.get("campaign_type"),
-                                 backfill_of=it.get("backfill_of"), account_id=it.get("account_id"), confirm_legacy_account=bool(it.get("confirm_legacy_account")))
+                                 backfill_of=it.get("backfill_of"), account_id=it.get("account_id"), confirm_legacy_account=bool(it.get("confirm_legacy_account")),
+                                 confirm_legacy_marketplace=bool(it.get("confirm_legacy_marketplace")))
                 books |= r["books"]
                 done += 1
             except (GS.GlobalImportError, registry.RegistryError) as e:
@@ -332,3 +334,55 @@ def create_book_and_associate(ws, form: dict, amazon_campaign_ids: list, recalc=
     out.message = f"Libro creato (pareggio {clean['break_even_acos']:.2f}%) · {out.message}"
     out.ok = True if out.ok or not amazon_campaign_ids else out.ok
     return out
+
+
+# ------------------------------------------------------------------ riparazione marketplace (import fatti quando 1 file = 1 marketplace)
+def mixed_imports(ws) -> list:
+    """Import globali che contengono righe di piu' marketplace registrate come uno solo. Solo lettura."""
+    conn = read_conn(ws)
+    if conn is None:
+        return []
+    try:
+        return GS.find_mixed_imports(conn) if GS.has_schema(conn) else []
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+
+
+def repair_marketplace_plan(ws) -> dict:
+    """PIANO di riparazione calcolato su una COPIA TEMPORANEA del DB: il DB reale non viene mai aperto in scrittura."""
+    import shutil
+    import tempfile
+    from pathlib import Path
+    if not ws.db_path.is_file():
+        return {"imports": [], "conflicts": [], "mapping_updates": [], "affected": set(), "moved_rows": 0, "created_imports": 0, "applied": False}
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        copy = Path(tmp) / "plan.db"
+        src = sqlite3.connect(f"{ws.db_path.resolve().as_uri()}?mode=ro", uri=True)
+        dst = sqlite3.connect(copy)
+        src.backup(dst)
+        dst.close()
+        src.close()
+        conn = connect(copy)
+        try:
+            return GS.repair_marketplace(conn, apply=False)
+        finally:
+            conn.close()
+
+
+def repair_marketplace_apply(ws, recalc=True) -> OpResult:
+    """Esegue la riparazione (UN backup prima della scrittura) e ricalcola SOLO i libri/marketplace coinvolti. Nessun dato originale viene cancellato."""
+    bk = backup_db(ws, "ripara_marketplace")
+    conn = connect(ws.db_path)
+    logger, _ = setup_logger(ws.logs_dir, "global_repair")
+    try:
+        rep = GS.repair_marketplace(conn, apply=True)
+        mat = GS.materialize(conn, ws.settings)
+        pairs = set(rep["affected"]) | mat["books"]
+        rec = recalculate(ws, pairs, conn, logger) if recalc and pairs else []
+        return OpResult(True, list(rep["conflicts"]), f"{rep['created_imports']} snapshot creati, {rep['moved_rows']} righe riallineate al marketplace corretto",
+                        {**rep, "recalc": rec, "backup": str(bk) if bk else None})
+    finally:
+        close_logger(logger)
+        conn.close()

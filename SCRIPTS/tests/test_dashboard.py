@@ -231,7 +231,7 @@ class ReadOnlyTests(DashBase):
     def test_dashboard_has_no_action_buttons(self):
         # V1 (sola lettura): nessun pulsante/form. Le pagine V2 (gestione/importazione) sono escluse da QUESTO controllo
         # (hanno pulsanti perche' scrivono file locali), ma restano soggette a tutti gli altri divieti (rete, Amazon, SQL di scrittura).
-        v2 = ("pages/7_", "pages/8_", "pages/10_", "pages/12_", "pages/13_", "pages/14_", "components/ops_ui.py", "ops/")
+        v2 = ("pages/7_", "pages/8_", "pages/10_", "pages/12_", "pages/13_", "pages/14_", "components/ops_ui.py", "components/manual_ui.py", "ops/")
         files = [(p, str(p.relative_to(ROOT / "DASHBOARD")).replace("\\", "/")) for p in (ROOT / "DASHBOARD").rglob("*.py")]
         v1_src = "".join(p.read_text(encoding="utf-8") for p, rel in files if not rel.startswith(v2))
         all_src = "".join(p.read_text(encoding="utf-8") for p, _ in files)
@@ -270,7 +270,8 @@ class UiSmokeTests(DashBase):
                     runpy.run_path(str(page), run_name="__main__")
                 except SystemExit:
                     pass
-                self.assertFalse([c for c in st.method_calls if c[0] in ("button", "form_submit_button")], page.name)
+                # nessun pulsante, TRANNE i due del registro azioni manuali (components/manual_ui.py): registrano solo nel DB locale e non scattano mai senza un click
+                self.assertFalse([c for c in st.method_calls if c[0] in ("button", "form_submit_button") and c[1][:1] not in (("Registra",), ("ANNULLA REGISTRAZIONE",))], page.name)
                 self.assertTrue(st.method_calls, page.name)
         finally:
             if old_env is None:

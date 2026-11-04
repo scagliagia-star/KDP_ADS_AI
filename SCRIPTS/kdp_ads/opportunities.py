@@ -65,6 +65,8 @@ DEFAULTS = {
     "promote_min_clicks": 3,                 # nessuna promozione EXACT con meno clic (qualunque numero di acquisti)
     "watch_min_clicks": 3,                   # 0 ordini sotto questa soglia = NO_ACTION; negative mai con 2-3 clic
     "new_exact_campaign_min_terms": 3,
+    "product_parent_min_clicks": 10,         # validation gate del TARGET PADRE di un prodotto vincente: clic minimi del 30D per giudicarne l'ACOS
+    "product_parent_recent_min_clicks": 10,  # ...e clic minimi del 7D per giudicare «0 acquisti recenti»
 }
 
 
@@ -281,6 +283,20 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
         rec["target_status"] = ("ENABLED" if "ENABLED" in sts else "PAUSED" if sts and all(s == "PAUSED" for s in sts) else "UNKNOWN")
         rec["reason"] = "target prodotto (ASIN) con buon rendimento: non e' una keyword, nessuna promozione in EXACT."
         rec["asin_targeted"] = any(product_asin(x["target"]) == term for x in target_rows)       # esiste gia' un product target per questo ASIN?
+        pv = parent_validation(target_rows, cid, parent, w["tactical"], ctx, cfg)               # validation gate: il padre deve reggere il 30D e non essere a secco nel 7D
+        rec["parent_target"] = parent
+        rec["parent_validation"] = pv["state"]
+        rec["parent_validation_reason"] = pv["reason"]
+        rec["parent_acos_30d"] = None if pv["m30"] is None else pv["m30"].acos
+        rec["parent_clicks_30d"] = None if pv["m30"] is None else pv["m30"].clicks
+        rec["parent_orders_30d"] = None if pv["m30"] is None else pv["m30"].orders
+        rec["parent_spend_30d"] = None if pv["m30"] is None else pv["m30"].spend
+        rec["parent_clicks_7d"] = None if pv["m7"] is None else pv["m7"].clicks
+        rec["parent_orders_7d"] = None if pv["m7"] is None else pv["m7"].orders
+        rec["parent_inefficient"] = pv["state"] == "FAIL"
+        if pv["state"] == "FAIL":
+            rec["flags"] = rec["flags"] + ["PARENT_TARGET_INEFFICIENT"]
+            rec["reason"] = "termine/prodotto interessante, ma il target complessivo e' inefficiente: " + pv["reason"] + "."
         records.append(rec)
 
     acct_of = {c["campaign_id"]: c.get("amazon_account_id") for c in campaigns if c.get("amazon_account_id")}
@@ -323,6 +339,51 @@ def compute_opportunities(st_rows, target_rows, campaigns, ctx: BookCtx, status_
         excluded["righe_impossibili"] = len(bad_st)
     return {"records": records, "excluded": dict(excluded), "config": cfg, "data_warnings": impossible_warnings(bad_st),
             "new_exact_campaign": new_exact_campaign_suggestion(records, campaigns, ctype, cfg)}
+
+
+# ------------------------------------------------------------------ validation gate del target padre di un prodotto
+def _sum_metrics(rows, ctx):
+    return compute_metrics(sum(r.get("impressions") or 0 for r in rows), sum(r["clicks"] or 0 for r in rows), sum(r["spend"] or 0 for r in rows),
+                           sum(r["orders"] or 0 for r in rows), sum(r["sales"] or 0 for r in rows), ctx.royalty)
+
+
+def parent_validation(target_rows, cid, parent, tactical_pid, ctx, cfg) -> dict:
+    """Un prodotto/ASIN puo' nascere come «vincente» da un Search Term, ma il TARGET PADRE (Targeting complessivo della stessa campagna) deve reggere il 30D:
+      FAIL        ACOS 30D del padre > pareggio (>= product_parent_min_clicks clic), oppure 30D senza acquisti con spesa >= royalty, oppure 7D del padre con >= product_parent_recent_min_clicks
+                  clic e 0 acquisti: il termine/prodotto e' interessante ma il target complessivo e' inefficiente => NON «vincente»;
+      PASS        il padre ha dati 30D e nessuna delle condizioni sopra;
+      UNVERIFIED  nessun dato del padre (target non importato / periodo tattico assente): il gate non puo' bocciare, la scheda lo dice.
+    Ritorna {state, reason, m30, m7} (m30/m7 = Metrics | None)."""
+    pn = normalize_term(parent)
+    snap = ctx.rules["snapshots"]
+    usable = [t for t in target_rows if t.get("clicks") is not None and t["report_scope"] == "DATE_RANGE"]
+    role = lambda t: window_role(t["report_scope"], t["date_from"], t["date_to"], snap)         # noqa: E731
+    # Lo STESSO target (stessa stringa, es. asin="X") puo' esistere in piu' campagne, anche una storica ferma a un periodo vecchio: il padre si giudica sull'ULTIMO 30D / 7D importato
+    # del libro (qualunque campagna), sommando le righe del target in quel periodo (campagne diverse = righe disgiunte). Una campagna con dati piu' vecchi non puo' far passare il gate.
+    t30s = [t for t in usable if role(t) == "TACTICAL"]
+    latest30 = max((t["date_to"] or "" for t in t30s), default=None)
+    r30 = [t for t in t30s if (t["date_to"] or "") == latest30 and normalize_term(t["target"]) == pn]
+    short = [t for t in usable if role(t) == "SHORT_TREND"]
+    last7 = max((t["date_to"] or "" for t in short), default=None)
+    r7 = [t for t in short if (t["date_to"] or "") == last7 and normalize_term(t["target"]) == pn]
+    m30 = _sum_metrics(r30, ctx) if r30 else None
+    m7 = _sum_metrics(r7, ctx) if r7 else None
+    out = {"state": "UNVERIFIED", "reason": "target padre senza dati 30D: validazione non possibile", "m30": m30, "m7": m7}
+    if m30 is None and m7 is None:
+        return out
+    fail = []
+    if m30 is not None and m30.clicks >= cfg["product_parent_min_clicks"]:
+        if m30.acos is not None and m30.acos > ctx.break_even_acos:
+            fail.append(f"ACOS 30D del target complessivo {m30.acos:.1f}% sopra il pareggio {ctx.break_even_acos:.1f}%")
+        elif m30.orders == 0 and m30.spend >= ctx.royalty:
+            fail.append(f"30D del target complessivo: {m30.clicks:g} clic e nessun acquisto")
+    if m7 is not None and m7.clicks >= cfg["product_parent_recent_min_clicks"] and m7.orders == 0:
+        fail.append(f"negli ultimi 7 giorni il target complessivo ha {m7.clicks:g} clic e nessun acquisto")
+    if fail:
+        return {**out, "state": "FAIL", "reason": "; ".join(fail)}
+    if m30 is not None:
+        return {**out, "state": "PASS", "reason": "il target complessivo regge il 30D"}
+    return out
 
 
 def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any_kw, added_as=(), ad_groups=()):
@@ -535,11 +596,13 @@ def load_inputs(conn, book_id, marketplace, legacy_marketplace=None):
         return " AND (UPPER(marketplace)=? OR (marketplace IS NULL AND ?=?))", (mp, mp, legacy)
     out = {}
     for key, table, cols in (("st_rows", "search_term_rows", "campaign_id, campaign_type, target, match_type, search_term, report_scope, date_from, date_to, period_id, impressions, clicks, spend, orders, sales{extra}"),
-                             ("target_rows", "target_rows", "campaign_id, campaign_type, target, match_type, report_scope, date_from, date_to, period_id, raw_json")):
+                             ("target_rows", "target_rows", "campaign_id, campaign_type, target, match_type, report_scope, date_from, date_to, period_id, raw_json{extra}")):
         sql, args = clause(table)
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         if key == "st_rows":
-            have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
             cols = cols.replace("{extra}", "".join(f", {c}" for c in ("ad_group", "added_as", "amazon_account_id", "amazon_campaign_id") if c in have))
+        else:                                                    # metriche del target (gate del target padre di un prodotto vincente), se la tabella le ha
+            cols = cols.replace("{extra}", "".join(f", {c}" for c in ("impressions", "clicks", "spend", "orders", "sales") if c in have))
         out[key] = q(f"SELECT {cols} FROM {table} WHERE book_id=?{sql}", (book_id, *args))
     sql, args = clause("campaigns")
     have_c = {r[1] for r in conn.execute("PRAGMA table_info(campaigns)")}

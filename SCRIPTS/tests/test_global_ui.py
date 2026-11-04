@@ -49,7 +49,7 @@ class GlobalPagesTests(tg.WsBase):
     def test_import_page_has_four_slots_preview_then_import(self):
         at = AppTest.from_file(P13, default_timeout=120).run()
         self.assertFalse(at.exception, at.exception)
-        self.assertEqual([u.label for u in at.get("file_uploader")], ["Targeting 7D", "Targeting 30D", "Search Term 7D", "Search Term 30D"])
+        self.assertEqual([u.label for u in at.get("file_uploader")], ["Targeting 7D", "Targeting 30D", "Targeting Lifetime", "Search Term 7D", "Search Term 30D", "Search Term 65D"])
         t = self.texts(at)
         self.assertIn("Nuovo flusso consigliato", t)
         self.assertIn("nessuna azione viene eseguita su Amazon Ads", t)

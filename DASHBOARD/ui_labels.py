@@ -43,6 +43,11 @@ OV_EXACT = "KEYWORD DA METTERE IN EXACT"
 OV_EXACT_NEW = "CREA CAMPAGNA EXACT CON QUESTE KEYWORD"
 OV_NEGATIVE = "KEYWORD DA VALUTARE COME NEGATIVE"
 OV_CONFLICTS = "CONFLITTI DA VERIFICARE"
+OV_NEW_AFTER = "NUOVA AZIONE DOPO MODIFICA PRECEDENTE"
+OV_DONE = "GIÀ ESEGUITO"
+OV_REGISTER = "HO FATTO QUESTA MODIFICA"
+OV_REGISTER_NOTE = "Registra la modifica solo nel database locale (data e valori): non cambia nulla su Amazon Ads. Serve a non riproporre la stessa azione la settimana dopo."
+OV_REGISTER_DONE = "Registra"
 ACCOUNT_FILTER = "Account Amazon Ads"
 ACCOUNT_ALL = "TUTTI GLI ACCOUNT"
 ACCOUNT_UNKNOWN = "Account non noto (campagne legacy)"
@@ -260,9 +265,12 @@ OPP_FLAG_LABELS = {"OUT_OF_INTENT": "Fuori intento per promozione", "AUTO_STRONG
 OPP_NEGATIVE_TYPE_NOTE = "Il tipo di negativa (exact o phrase) non è deciso."
 # ------------------------------------------------------------------ Report globali Amazon Ads (4 CSV -> smistamento per libro)
 GLOBAL_PAGE_TITLE = "Report globali Amazon Ads"
-GLOBAL_INTRO = ("**Nuovo flusso consigliato.** Carica soltanto 4 report globali di Amazon Ads: Targeting 7D, Targeting 30D, Search Term 7D, Search Term 30D. Ogni file contiene "
+GLOBAL_INTRO = ("**Nuovo flusso consigliato.** Carica i report globali di Amazon Ads: Targeting 7D, 30D e Lifetime, Search Term 7D, 30D e 65D. Ogni file contiene "
                 "molte campagne e molti libri: l'app riconosce le campagne dall'ID Amazon e smista i dati per libro. Le campagne nuove non bloccano l'import: restano in "
                 "«Campagne da associare».")
+GLOBAL_FREQ_NOTE = ("**Frequenza consigliata.** Ogni settimana: Targeting 7D, Targeting 30D, Search Term 7D, Search Term 30D, Search Term 65D. "
+                    "Ogni mese: Targeting Lifetime. Search Term 65D e Targeting Lifetime sono finestre di SUPPORTO (contesto e storico): se mancano l'import non si blocca. "
+                    "Il 30D resta la finestra decisionale; il 7D conferma o smentisce; il 65D distingue un calo temporaneo da un problema persistente; il Lifetime è memoria storica.")
 GLOBAL_NO_ACTIONS = ("Solo analisi e supporto alle decisioni: nessuna azione viene eseguita su Amazon Ads (bid, pause, keyword e negative restano modifiche manuali).")
 GLOBAL_LEGACY_LINK = "Import legacy (un file per campagna): vai a «Importa report»"
 GLOBAL_SLOTS_HEADER = "REPORT GLOBALI AMAZON ADS"

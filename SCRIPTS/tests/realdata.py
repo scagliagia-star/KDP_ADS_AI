@@ -69,7 +69,7 @@ def _sanitize(path: Path) -> None:
             c.execute("DELETE FROM campaigns WHERE book_id=? AND campaign_id=?", (b, cid))
         if "amazon_account_id" in _cols(c, "campaigns"):
             c.execute("UPDATE campaigns SET amazon_account_id=NULL")
-        for t in ("global_report_rows", "global_report_imports", "campaign_book_mapping", "campaign_book_mapping_v6_old"):
+        for t in ("global_report_rows", "global_report_imports", "campaign_book_mapping", "campaign_book_mapping_v6_old", "global_report_imports_v6_old", "global_report_imports_v7_old", "manual_actions"):
             if t in tabs:
                 c.execute(f"DELETE FROM {t}")
         if first:                                              # run creati dopo il primo import globale: via (la lista dei run torna quella storica)

@@ -8,7 +8,7 @@ Impressioni, Clic, Costo totale, Acquisti, Vendite, Unita' vendute, ... Gli ID a
 (nessuna perdita di precisione).
 
 REGOLE
-  - il tipo di report (TARGETING / SEARCH_TERM) e' riconosciuto dalle colonne; la FINESTRA (RECENT_7D / RECENT_30D) la sceglie l'utente per file: NON si deduce mai da
+  - il tipo di report (TARGETING / SEARCH_TERM) e' riconosciuto dalle colonne; la FINESTRA (RECENT_7D / RECENT_30D / RECENT_65D / LIFETIME) la sceglie l'utente per file: NON si deduce mai da
     "Intervallo di date", che e' un metadato della singola riga (un target comparso a meta' finestra ha un intervallo piu' corto);
   - snapshot: date_to = ultima data finale delle righe (o quella indicata dall'utente), date_from = date_to - (giorni - 1);
   - Search Term vuoto: la riga e' CONSERVATA (flag empty_search_term) ma non e' mai un search term reale (nessun "nan", nessuna promozione, nessuna negativa);
@@ -24,7 +24,8 @@ from datetime import date, timedelta
 
 PARSER_VERSION = 1
 SOURCE = "AMAZON_GLOBAL_REPORT"
-WINDOWS = {"RECENT_7D": 7, "RECENT_30D": 30}
+WINDOWS = {"RECENT_7D": 7, "RECENT_30D": 30, "RECENT_65D": 65, "LIFETIME": None}      # LIFETIME: nessuna durata (storico completo, finestra di sostegno mensile)
+WINDOW_ROLES = {"RECENT_7D": "TREND", "RECENT_30D": "DECISIONAL", "RECENT_65D": "CONTEXT_MEDIUM", "LIFETIME": "HISTORICAL_MEMORY"}
 REPORT_TYPES = {"TARGETING": "Targeting", "SEARCH_TERM": "Search Term"}
 MAX_BYTES = 60 * 1024 * 1024
 MAX_ROWS = 400_000
@@ -32,10 +33,55 @@ MAX_ROWS = 400_000
 _MONTHS = {"gen": 1, "feb": 2, "mar": 3, "apr": 4, "mag": 5, "giu": 6, "lug": 7, "ago": 8, "set": 9, "ott": 10, "nov": 11, "dic": 12,
            "jan": 1, "may": 5, "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10, "dec": 12}
 CURRENCY_MARKETPLACE = {"USD": "US", "GBP": "UK", "CAD": "CA", "AUD": "AU", "JPY": "JP"}      # EUR e' ambiguo (DE/IT/FR/ES): si sceglie a mano
+CURRENCY_CHOICES = {"EUR": ["DE", "FR", "IT", "ES"]}                                              # valute con piu' marketplace possibili: mai indovinare
+_MP_CODE = re.compile(r"^[A-Z]{2,3}$")
+
+
+def resolve_marketplace(currency=None, hint=None, override=None) -> tuple:
+    """(marketplace | None, fonte). PRIORITA': scelta dell'utente (USER) > metadato Amazon di riga, se il report lo contiene (METADATA) > valuta UNIVOCA (CURRENCY).
+    Una valuta ambigua (EUR) o assente NON viene mai indovinata: (None, 'AMBIGUOUS' | 'UNKNOWN') e il marketplace va scelto a mano per quel gruppo."""
+    for value, source in ((override, "USER"), (hint, "METADATA")):
+        code = str(value or "").strip().upper()
+        if code and _MP_CODE.match(code):
+            return code, source
+    cur = str(currency or "").strip().upper()
+    if cur in CURRENCY_MARKETPLACE:
+        return CURRENCY_MARKETPLACE[cur], "CURRENCY"
+    return None, ("AMBIGUOUS" if cur else "UNKNOWN")
+
+
+def split_by_marketplace(parsed: dict, marketplace=None) -> list:
+    """Suddivide le righe di UN file per gruppo valuta/marketplace (un report Amazon puo' contenere campagne di PIU' marketplace).
+    `marketplace` (scelta dell'utente): None; una stringa (vale per i gruppi NON risolti e, se il file ha un solo gruppo, lo sostituisce); oppure {valuta: marketplace}.
+    Ritorna [{currency, marketplace|None, source, rows[], campaigns}] ordinato per marketplace/valuta. Le righe NON vengono mai spostate fra gruppi diversi dal loro."""
+    by = {}
+    for r in parsed["rows"]:
+        by.setdefault((r.get("currency") or "", r.get("marketplace_hint") or ""), []).append(r)
+    single = len(by) == 1
+    out = {}
+    for (cur, hint), rows in by.items():
+        ov = None
+        if isinstance(marketplace, dict):
+            ov = marketplace.get(cur) or marketplace.get(cur.upper() if cur else "")
+        elif marketplace:
+            ov = marketplace if single else None
+        mp, src = resolve_marketplace(cur, hint, ov)
+        if mp is None and isinstance(marketplace, str) and marketplace and not single:
+            mp, src = resolve_marketplace(cur, hint, marketplace)          # gruppo non risolto: la scelta generica lo riempie
+        g = out.setdefault((mp, cur if mp is None else ""), {"currency": cur or None, "currencies": set(), "marketplace": mp, "source": src, "rows": [], "choices": CURRENCY_CHOICES.get(cur, [])})
+        g["rows"] += rows
+        g["currencies"].add(cur)
+        if mp is not None and g["currency"] != (cur or None):
+            g["currency"] = None                                            # piu' valute sullo stesso marketplace (caso anomalo)
+    groups = list(out.values())
+    for g in groups:
+        g["campaigns"] = len({r["campaign_id"] for r in g["rows"]})
+        g["currencies"] = sorted(c for c in g["currencies"] if c)
+    return sorted(groups, key=lambda g: (g["marketplace"] or "~", g["currency"] or ""))
 
 # campo canonico -> alias normalizzati (minuscolo, senza accenti/punteggiatura)
 ALIASES = {
-    "currency": ["valuta budget", "valuta", "currency"], "date_range": ["intervallo di date", "date range"],
+    "currency": ["valuta budget", "valuta", "currency"], "marketplace": ["marketplace", "mercato", "paese", "country"], "date_range": ["intervallo di date", "date range"],
     "account_id": ["id account inserzionista"], "account_name": ["nome account inserzionista"],
     "portfolio_id": ["id portfolio"], "portfolio_name": ["nome portfolio"],
     "campaign_id": ["id della campagna", "id campagna"], "campaign_name": ["nome della campagna", "nome campagna"],
@@ -127,12 +173,15 @@ def detect_report_type(canon: set) -> str | None:
     return None
 
 
-def snapshot_dates(rows: list, days: int, date_to_override: date | None = None) -> tuple:
-    """(date_from, date_to) ISO dello SNAPSHOT: date_to = override utente oppure la data finale piu' recente fra le righe; date_from = date_to - (giorni - 1)."""
+def snapshot_dates(rows: list, days: int | None, date_to_override: date | None = None) -> tuple:
+    """(date_from, date_to) ISO dello SNAPSHOT: date_to = override utente oppure la data finale piu' recente fra le righe; date_from = date_to - (giorni - 1).
+    LIFETIME (days None): nessuna finestra, per convenzione date_from = date_to (il motore lo tratta come report_scope LIFETIME senza data iniziale)."""
     ends = [r["row_to"] for r in rows if r.get("row_to")]
     end = date_to_override or (max(ends) if ends else None)
     if end is None:
         return None, None
+    if days is None:
+        return end.isoformat(), end.isoformat()
     return (end - timedelta(days=days - 1)).isoformat(), end.isoformat()
 
 
@@ -196,7 +245,8 @@ def parse_global_report(name: str, data: bytes) -> dict:
             "empty_search_term": bool(rtype == "SEARCH_TERM" and not (term or "").strip()), "row_from": rf, "row_to": rt, "account_id": clean_id(g("account_id")), "account_name": g("account_name") or None,
             "bid": num(g("bid")), "target_state": g("target_state") or None, "target_kind": g("target_kind") or None,
             "impressions": num(g("impressions")), "clicks": num(g("clicks")), "spend": num(g("spend")), "orders": num(g("orders")), "sales": num(g("sales")),
-            "units": num(g("units")),
+            "units": num(g("units")), "currency": (g("currency") or "").upper() or None,
+            "marketplace_hint": (g("marketplace") or "").upper() if _MP_CODE.match((g("marketplace") or "").upper()) else None,
             "raw": {h["header"]: (r[h["index"]].strip() if h["index"] < len(r) else "") for h in cols},
         }
         if any(row[k] is None for k in ("clicks", "spend", "orders", "sales")):

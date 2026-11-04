@@ -4,6 +4,7 @@ import hashlib
 import os
 import runpy
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -249,9 +250,15 @@ class RenderTests(td.DashBase):
     def test_menu_home_is_panoramica_not_app(self):
         log, old = [], sys.modules.get("streamlit")
         sys.modules["streamlit"] = Rec(log)
+        old_db = os.environ.get("KDP_ADS_DB")
+        os.environ["KDP_ADS_DB"] = str(Path(tempfile.gettempdir()) / "kdp_menu_test_no_such_db.db")     # ermetico: il badge «(N)» dipende dal DB operativo, qui non esiste
         try:
             runpy.run_path(str(ROOT / "DASHBOARD" / "app.py"), run_name="__main__")
         finally:
+            if old_db is None:
+                os.environ.pop("KDP_ADS_DB", None)
+            else:
+                os.environ["KDP_ADS_DB"] = old_db
             if old is None:
                 sys.modules.pop("streamlit", None)
             else:

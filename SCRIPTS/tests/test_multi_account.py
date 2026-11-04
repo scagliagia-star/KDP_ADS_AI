@@ -139,7 +139,7 @@ class SnapshotsAndRevisionsTests(MA):
     def test_unique_active_index_includes_the_account(self):
         c = self.db()
         try:
-            sql = c.execute("SELECT sql FROM sqlite_master WHERE name='ux_gri_active'").fetchone()[0]
+            sql = c.execute("SELECT sql FROM sqlite_master WHERE name='ux_gri_active_v8'").fetchone()[0]
             self.assertIn("COALESCE(account_id, '')", sql)
         finally:
             c.close()

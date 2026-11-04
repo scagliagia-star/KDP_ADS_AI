@@ -6,9 +6,9 @@ from pathlib import Path
 
 from .decfields import DEC_FIELDS, STATUSES
 from .recfields import REC_FIELDS
-from . import competitor_store, globalstore
+from . import competitor_store, globalstore, manual_actions
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 8
 
 # Colonne di contesto presenti in imports e in ogni riga dati (denormalizzate per filtrare senza JOIN).
 _CTX = """
@@ -142,6 +142,7 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     _upgrade(conn)
     conn.executescript(SCHEMA)
+    manual_actions.ensure_schema(conn)                                      # v8: registro delle azioni manuali (tabella NUOVA, nessuna esistente toccata)
     globalstore.ensure_schema(conn)                                         # Report globali Amazon Ads: tabelle NUOVE + colonne di tracciabilita' (additive)
     competitor_store.ensure_schema(conn)                                    # Ricerca competitor (Cerebro): tabelle NUOVE e additive, nessuna esistente toccata
     _ensure_columns(conn, "recommendations", REC_FIELDS)     # colonne aggiunte dopo (nullable, righe storiche = NULL)
@@ -223,15 +224,95 @@ def _rebuild_imports_unique(conn):
         conn.execute("PRAGMA foreign_keys=ON")
 
 
+def rebuild_global_imports_unique(conn) -> bool:
+    """v6 -> v7 (report globali): un file puo' contenere PIU' marketplace (US + UK) e quindi produrre piu' snapshot. La forma v6 di `global_report_imports` aveva UNIQUE(file_sha256),
+    che lo impedisce. SQLite non toglie un UNIQUE: la vecchia tabella viene RINOMINATA `global_report_imports_v6_old` (resta come audit, nessun DROP, nessun dato cancellato) e
+    la nuova, con la chiave (file_sha256, marketplace), viene popolata ricopiando TUTTE le righe con gli stessi gimport_id. Le righe figlie e le chiavi esterne non cambiano.
+    Tutto in UNA transazione (o tutto o niente) e idempotente: con la forma nuova non fa nulla. Va eseguita PRIMA di creare gli indici della forma v7.
+    Ritorna True se ha ricostruito la tabella."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='global_report_imports'").fetchone():
+        return False
+    uniq = [r for r in conn.execute("PRAGMA index_list(global_report_imports)") if r[2] and r[3] == "u"]
+    if not [r for r in uniq if [c[2] for c in conn.execute(f"PRAGMA index_info({r[1]})")] == ["file_sha256"]]:
+        return False
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='global_report_imports_v6_old'").fetchone():
+        raise RuntimeError("migrazione v7: esiste gia' global_report_imports_v6_old ma global_report_imports ha ancora la forma v6: intervento manuale necessario")
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(global_report_imports)")]
+    n_before = conn.execute("SELECT COUNT(*) FROM global_report_imports").fetchone()[0]
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.execute("PRAGMA legacy_alter_table=ON")                  # le REFERENCES delle righe figlie restano sul nome `global_report_imports`
+    try:
+        conn.execute("BEGIN")
+        conn.execute("ALTER TABLE global_report_imports RENAME TO global_report_imports_v6_old")
+        conn.execute(globalstore._IMPORTS_DDL.format(name="global_report_imports").replace("IF NOT EXISTS ", ""))
+        keep = [c for c in cols if c in {r[1] for r in conn.execute("PRAGMA table_info(global_report_imports)")}]
+        conn.execute(f"INSERT INTO global_report_imports ({','.join(keep)}) SELECT {','.join(keep)} FROM global_report_imports_v6_old ORDER BY gimport_id")
+        if conn.execute("SELECT COUNT(*) FROM global_report_imports").fetchone()[0] != n_before:
+            raise RuntimeError("migrazione global_report_imports: numero di righe diverso, annullata")
+        conn.execute("UPDATE global_report_imports SET source_gimport_id=gimport_id WHERE source_gimport_id IS NULL")
+        conn.commit()
+        if conn.execute("PRAGMA foreign_key_check").fetchall():
+            raise RuntimeError("migrazione global_report_imports: violazioni di chiave esterna")
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("PRAGMA legacy_alter_table=OFF")
+        conn.execute("PRAGMA foreign_keys=ON")
+    return True
+
+
+def rebuild_global_imports_window_check(conn) -> bool:
+    """v7 -> v8 (finestre di sostegno 65D e LIFETIME): il CHECK su `window_label` di `global_report_imports` ammetteva solo RECENT_7D / RECENT_30D e `window_days` era NOT NULL.
+    SQLite non modifica un CHECK: la tabella v7 viene RINOMINATA `global_report_imports_v7_old` (resta come audit, nessun DROP di tabelle, nessun dato cancellato) e la nuova,
+    con la forma v8, e' popolata ricopiando TUTTE le righe con gli stessi gimport_id (righe figlie e chiavi esterne invariate). Gli indici univoci della vecchia tabella restano attaccati ad essa
+    (nessun DROP): quelli della tabella nuova hanno nomi nuovi (ux_gri_active_v8, ux_gri_file_mp_v8) e li crea globalstore.ensure_schema. Una sola transazione (o tutto o niente), idempotente: con la forma v8 non fa nulla.
+    Ritorna True se ha ricostruito la tabella."""
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='global_report_imports'").fetchone()
+    if not row or "RECENT_65D" in row[0]:
+        return False
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='global_report_imports_v7_old'").fetchone():
+        raise RuntimeError("migrazione v8: esiste gia' global_report_imports_v7_old ma global_report_imports ha ancora la forma v7: intervento manuale necessario")
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(global_report_imports)")]
+    n_before = conn.execute("SELECT COUNT(*) FROM global_report_imports").fetchone()[0]
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.execute("PRAGMA legacy_alter_table=ON")                  # le REFERENCES delle righe figlie restano sul nome `global_report_imports`
+    try:
+        conn.execute("BEGIN")
+        conn.execute("ALTER TABLE global_report_imports RENAME TO global_report_imports_v7_old")
+        conn.execute(globalstore._IMPORTS_DDL.format(name="global_report_imports").replace("IF NOT EXISTS ", ""))
+        keep = [c for c in cols if c in {r[1] for r in conn.execute("PRAGMA table_info(global_report_imports)")}]
+        conn.execute(f"INSERT INTO global_report_imports ({','.join(keep)}) SELECT {','.join(keep)} FROM global_report_imports_v7_old ORDER BY gimport_id")
+        if conn.execute("SELECT COUNT(*) FROM global_report_imports").fetchone()[0] != n_before:
+            raise RuntimeError("migrazione global_report_imports (v8): numero di righe diverso, annullata")
+        conn.commit()
+        if conn.execute("PRAGMA foreign_key_check").fetchall():
+            raise RuntimeError("migrazione global_report_imports (v8): violazioni di chiave esterna")
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("PRAGMA legacy_alter_table=OFF")
+        conn.execute("PRAGMA foreign_keys=ON")
+    return True
+
+
 def _upgrade(conn):
-    """v1 (mono-libro) -> v2 (multi-book): ricrea le tabelle SOLO se vuote.
+    """v7 -> v8 (azioni manuali + finestre 65D / Lifetime nei report globali): tabella NUOVA `manual_actions` (additiva) e ricostruzione di `global_report_imports` per allargare il CHECK su
+    window_label (la vecchia tabella resta come global_report_imports_v7_old, nessun dato perso). Backup pre-schema-v8 una sola volta; un DB nuovo nasce direttamente v8.
+    v1 (mono-libro) -> v2 (multi-book): ricrea le tabelle SOLO se vuote.
     v2 -> v3 (period snapshot): aggiunge period_id/snapshot_id e li ricalcola dai dati esistenti, SENZA perdere dati.
     v3 -> v4 (multi-marketplace): colonne/tabella nuove, nessuna riga toccata.
     v4 -> v5 (deduplica per snapshot): ricopia imports con UNIQUE (libro, campagna, tipo, periodo, hash), nessuna riga persa.
+    v6 -> v7 (report globali multi-marketplace): un file puo' produrre piu' snapshot (US + UK). global_report_imports passa da UNIQUE(file_sha256) a UNIQUE(file_sha256, marketplace)
+    (la vecchia tabella resta come global_report_imports_v6_old, nessun DROP); colonne nuove currency/marketplace sulle righe globali, source_gimport_id sugli import,
+    marketplace_conflict / legacy_marketplace_confirmed sul mapping, tabella global_report_repairs. Backup pre-schema-v7 una sola volta; un DB nuovo nasce direttamente v7.
     v5 -> v6 (SOLO additiva): tabelle nuove (competitor_*, global_report_imports, global_report_rows, campaign_book_mapping) e colonne nullable di tracciabilita'
     amazon_campaign_id / amazon_ad_group_id / amazon_target_id / amazon_account_id / row_date_from / row_date_to su target_rows e search_term_rows (amazon_account_id anche su campaigns e decisions).
-    MULTI-ACCOUNT: la mappa campagne ha chiave (account, ID campagna Amazon); la v6 non e' mai stata applicata al DB reale (resta v5), quindi la forma definitiva e' incorporata nella v6
-    senza una v7; un DB di sviluppo con la prima forma viene portato a quella nuova da globalstore.ensure_schema (ricopia le righe, la vecchia tabella resta come audit). Nessun DROP, nessuna riga toccata:
+    MULTI-ACCOUNT: la mappa campagne ha chiave (account, ID campagna Amazon); un DB con la prima forma viene portato a quella nuova da globalstore.ensure_schema (ricopia le righe, la vecchia
+    tabella resta come audit). Nessun DROP, nessuna riga toccata:
     qui si fa solo il backup e si alza user_version; tabelle e colonne le crea (idempotente) connect() con CREATE ... IF NOT EXISTS / ALTER ... ADD COLUMN.
     Prima di OGNI migrazione di un DB esistente si crea un backup (una volta sola: a schema aggiornato non si ripete)."""
     ver = conn.execute("PRAGMA user_version").fetchone()[0]
@@ -261,5 +342,7 @@ def _upgrade(conn):
                                  f"snapshot_id = (SELECT i.snapshot_id FROM imports i WHERE i.import_id = {t}.import_id) "
                                  f"WHERE period_id IS NULL")
     _rebuild_imports_unique(conn)
+    rebuild_global_imports_unique(conn)                               # v6 -> v7 (no-op se le tabelle globali non esistono ancora: nascono gia' in forma v7)
+    rebuild_global_imports_window_check(conn)                         # v7 -> v8 (no-op se le tabelle globali non esistono ancora o sono gia' v8)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     conn.commit()

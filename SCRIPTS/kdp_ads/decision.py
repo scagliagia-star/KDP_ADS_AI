@@ -35,6 +35,7 @@ from .rules import CONF_ORDER, ctx_from_book, load_rules, priority
 from . import windows as win
 from .snapshots import days_inclusive, period_id as make_period_id, window_label, window_role
 from . import trend as TR
+from . import escalation as ESC
 
 STEP_OF = {"BID_DOWN_5_CANDIDATE": 5, "BID_DOWN_10_CANDIDATE": 10, "BID_DOWN_15_CANDIDATE": 15, "PAUSE_CANDIDATE": 100}
 ACTION_OF = {5: "BID_DOWN_5_CANDIDATE", 10: "BID_DOWN_10_CANDIDATE", 15: "BID_DOWN_15_CANDIDATE", 100: "PAUSE_CANDIDATE"}
@@ -365,9 +366,10 @@ def build_decisions(conn, settings: dict, rules_path, book_id: str, analysis_run
     status_of, _st_key, win_status, _win_key = {}, {}, {}, {}
     for t in trows:
         k = (t["campaign_id"], amz.target_identity(t["target"]))
-        if t["report_scope"] != "LIFETIME":
-            # report globali Amazon (nessun lifetime): lo stato e' nella colonna "Stato del target" del report a finestra piu' recente (30D prima del 7D). I report
-            # legacy a finestra NON entrano qui: il comportamento storico (stato dal solo lifetime) resta identico.
+        if t["report_scope"] != "LIFETIME" or "Stato del target" in str(t.get("raw_json") or ""):
+            # report globali Amazon: lo stato e' nella colonna "Stato del target" del report PIU' RECENTE (a pari data: finestra piu' lunga, il Lifetime mensile per ultimo): il Lifetime
+            # globale e' un report di sostegno mensile e non deve nascondere lo stato aggiornato dei report settimanali. I report legacy NON entrano qui: il comportamento storico
+            # (stato dal solo lifetime) resta identico.
             if "Stato del target" in str(t.get("raw_json") or ""):
                 wkey = (t["date_to"] or "", days_inclusive(t["date_from"], t["date_to"]) or 0, t["id"])
                 if k not in _win_key or wkey > _win_key[k]:
@@ -499,8 +501,14 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
     if not (cc.get("trend_pid") or cc.get("trend_st_pid")):
         cands = [(i["date_to"] or "", p) for c in camp_ctx.values() for p, i in c["snaps"]["TARGETING"].items() if i["role"] == "SHORT_TREND"]
         book_trend_pid = max(cands)[1] if cands else None
-    if len(e.life) > 1:
-        ds.warnings.append(f"DATA_WARNING {e.key}: {len(e.life)} snapshot lifetime, uso il piu' recente")
+    # Piu' snapshot Lifetime (ottobre, novembre, ...) sono NORMALI: restano tutti per audit, vale solo il piu' recente (mai sommati) e non c'e' nessun avviso. Avviso solo se due
+    # Lifetime con la STESSA data hanno dati incompatibili (conflitto vero).
+    by_date = {}
+    for r in e.life:
+        by_date.setdefault(r["date_to"], []).append(r)
+    for dt, rs in by_date.items():
+        if len(rs) > 1 and len({(r["clicks"], r["orders"], round(r["spend"] or 0, 2), round(r["sales"] or 0, 2)) for r in rs}) > 1:
+            ds.warnings.append(f"DATA_WARNING {e.key}: {len(rs)} snapshot lifetime con la stessa data {dt} e dati diversi (conflitto): uso il piu' recente")
     life_rec = _pick_life(e.life)
     L = make_ev(life_rec, ctx, cfg, True) if life_rec else None
     negs = [make_ev(n, ctx, cfg, False) for n in e.neg]
@@ -686,6 +694,19 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
                      f"evidenza {trend['evidence']} ancora sfavorevole ({t_txt}): riduzione prudente -5% (il 7D da solo non decide, mai oltre -5%).")
         elif t_state == "WATCH_RECENT" and rule == "C0_NO_DOWN" and resolved is None:
             trend_watch = True
+
+    # ---- ESCALATION RECENTE (kdp_ads/escalation.py): 30D primario + 7D che conferma (+ 65D come contesto): il Lifetime frena (passo piu' prudente) ma non annulla un deterioramento
+    # recente forte. Mai dal solo 7D o dal solo 65D; senza riga 7D (MISSING_7D) non si escala. Solo se piu' forte di quanto gia' deciso.
+    if (e.kind != "neg" and Tv is not None and trend and trend.get("m") is not None and not tac_good and rule != "T2_RECENT_RECOVERY_NO_DOWN"):
+        c_m = Rc.m if (Rc is not None and (win.rec_days(Rc.rec) or 0) > snap_cfg["tactical_max_days"]) else None
+        esc = ESC.evaluate(Tv.m, L.m if L else None, c_m, trend["m"], ctx, ESC.config(ctx.rules))
+        if esc and esc["step"] > step:
+            prev_rule = rule
+            step, rule, resolved, conf = esc["step"], esc["rule"], None, cap(Tv.conf, "MEDIUM")
+            flags = [f for f in flags if f not in ("RECENT_DETERIORATION", "MILD_DETERIORATION_MONITOR", "RECENT_ZERO_ORDERS_WATCH", "RECENT_GOOD_ZERO_ORDER_WATCH",
+                                                   "LIFETIME_MILD_ZERO_ORDER_WATCH", "TREND_CONFIRMED_DECLINE")] + [esc["flag"]]
+            logic = esc["logic"] + (f" (sostituisce la regola {prev_rule}.)" if prev_rule != "C0_NO_DOWN" else "")
+            trend_watch = False
 
     strong_cut = False
     if e.kind != "neg" and step > 0:

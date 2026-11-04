@@ -268,6 +268,22 @@ class Repo:
             pass
         return out
 
+    def manual_actions(self, book_id, marketplace=None, status="EXECUTED") -> list:
+        """Azioni manuali registrate dall'utente (registro locale, schema v8) per libro e marketplace. DB non ancora migrato / tabella assente => []. Sola lettura."""
+        try:
+            if "manual_actions" not in self._tables():
+                return []
+            sql, args = "SELECT * FROM manual_actions WHERE book_id=?", [str(book_id)]
+            if status:
+                sql += " AND status=?"
+                args.append(status)
+            if marketplace:
+                sql += " AND UPPER(marketplace)=?"
+                args.append(str(marketplace).upper())
+            return self._query(sql + " ORDER BY executed_at, action_id", args)
+        except RepoError:
+            return []
+
     # ------------------------------------------------------------ ricerca competitor (Helium 10, fonte ESTERNA; sola lettura)
     def competitor_research(self, book, marketplace, opportunity_records=None) -> dict:
         """Sezione DA RICERCA COMPETITOR per i Suggerimenti di crescita: keyword Cerebro da testare in FRASE e ASIN competitor non ancora target prodotto,
