@@ -29,6 +29,18 @@ BID_TOL = 0.005                                               # due offerte a 2 
 # azione del decision layer -> tipo di azione manuale
 DECISION_ACTION = {"BID_DOWN_5_CANDIDATE": "BID_DOWN", "BID_DOWN_10_CANDIDATE": "BID_DOWN", "BID_DOWN_15_CANDIDATE": "BID_DOWN", "BID_UP_5_CANDIDATE": "BID_UP",
                    "BID_UP_10_CANDIDATE": "BID_UP", "PAUSE_CANDIDATE": "PAUSE", "REACTIVATE_CANDIDATE": "REACTIVATE", "NEGATIVE_CANDIDATE": "ADD_NEGATIVE_EXACT"}
+# GERARCHIA SEMANTICA: non tutte le azioni sono equivalenti. Un'azione piu' forte rende obsoleta una raccomandazione piu' debole sullo STESSO soggetto:
+#   PAUSE      supera BID_DOWN / BID_UP (e un semplice MONITORA): un target in pausa non ha piu' un'offerta da ritoccare;
+#   REACTIVATE supera una PAUSE precedente (la pausa non conta piu');
+# PROMOTE_TO_EXACT sopprime la stessa promozione futura; le negative seguono la semantica frase-copre-esatta (vedi classify).
+SUPERSEDES = {"PAUSE": ("BID_DOWN", "BID_UP"), "REACTIVATE": ("PAUSE",)}
+# Azioni registrabili con «HO FATTO UN'ALTRA MODIFICA», per tipo di entita' (mai un testo libero: solo queste scelte, mostrate nell'ordine).
+#   TARGET = keyword/target; ASIN = target per prodotto (non ha senso come negativa ne' come EXACT); TERM = termine di ricerca (negativa / EXACT).
+OTHER_ACTIONS = {"TARGET": ("PAUSE", "REACTIVATE", "BID_DOWN", "BID_UP", "ADD_NEGATIVE_EXACT", "ADD_NEGATIVE_PHRASE", "PROMOTE_TO_EXACT"),
+                 "ASIN": ("PAUSE", "REACTIVATE", "BID_DOWN", "BID_UP"),
+                 "TERM": ("ADD_NEGATIVE_EXACT", "ADD_NEGATIVE_PHRASE", "PROMOTE_TO_EXACT")}
+ACTION_CHOICES = {"PAUSE": "PAUSA", "REACTIVATE": "RIATTIVA", "BID_DOWN": "ABBASSA OFFERTA", "BID_UP": "ALZA OFFERTA", "ADD_NEGATIVE_EXACT": "AGGIUNGI NEGATIVA ESATTA",
+                  "ADD_NEGATIVE_PHRASE": "AGGIUNGI NEGATIVA A FRASE", "PROMOTE_TO_EXACT": "PROMOSSA IN EXACT"}
 ACTION_WORDS = {"BID_DOWN": "OFFERTA ABBASSATA", "BID_UP": "OFFERTA ALZATA", "PAUSE": "MESSO IN PAUSA", "REACTIVATE": "RIATTIVATO",
                 "ADD_NEGATIVE_EXACT": "NEGATIVA ESATTA AGGIUNTA", "ADD_NEGATIVE_PHRASE": "NEGATIVA A FRASE AGGIUNTA", "PROMOTE_TO_EXACT": "PROMOSSA IN EXACT"}
 
@@ -97,8 +109,8 @@ def record(conn, *, book_id, marketplace, action_type, account_id=None, campaign
     subj = subject_key(action_type, target, search_term)
     if not subj:
         raise ManualActionError("Serve il target" if action_type in TARGET_ACTIONS else "Serve il termine di ricerca")
-    if action_type in BID_FAMILY and value_after is None:
-        raise ManualActionError("Per una modifica di offerta indica l'offerta dopo la modifica")
+    if action_type in BID_FAMILY and (value_after is None or float(value_after) <= 0):
+        raise ManualActionError("Per una modifica di offerta indica l'offerta dopo la modifica (maggiore di zero)")
     ensure_schema(conn)
     ex = classify(list_actions(conn, book_id=book_id, marketplace=mp), account_id=account_id, marketplace=mp, book_id=book_id, campaign_id=campaign_id,
                   amazon_campaign_id=amazon_campaign_id, target=target, search_term=search_term, action_type=action_type, value_after=value_after)

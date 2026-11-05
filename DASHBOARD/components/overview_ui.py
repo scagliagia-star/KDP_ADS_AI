@@ -44,6 +44,16 @@ def _see_all(st):
         st.caption(U.OV_SEE_ALL_OPP + " (menu a sinistra)")
 
 
+def _target_manual(st, c):
+    """STATO DA REPORT vs ULTIMA AZIONE MANUALE (pausa / riattivazione registrate): una dichiarazione dell'utente, non una conferma di Amazon, finche' un report successivo non la conferma."""
+    tm = c.get("target_manual")
+    if not tm:
+        return
+    st.markdown(f"**{tm['report_text']}**")
+    st.markdown(f"**{tm['manual_text']}**")
+    st.markdown(f"_{tm['confirmation_text']}" + (" · finché il report non la conferma, è una tua dichiarazione" if tm["state"] == "PENDING" else "") + "_")
+
+
 def _previous(st, c):
     """Per una NUOVA AZIONE DOPO MODIFICA PRECEDENTE: ultima azione registrata e nuova raccomandazione."""
     m = c.get("manual")
@@ -101,6 +111,7 @@ def action_card(st, c, book):
         st.markdown(f"**{F.esc(c['title'])}** · {U.label_priority(c['priority']) if c['priority'] else F.ND}")
         _acct(st, c)
         _previous(st, c)
+        _target_manual(st, c)
         if c["bid"]:
             b = c["bid"]
             m = st.columns(3)
@@ -124,7 +135,7 @@ def action_card(st, c, book):
         if c.get("underlying"):
             st.caption(f"Azione potenziale conservata: {O.simple_action({'final_action': c['underlying']})['word'].lower()}.")
         why(st, d, book)
-        manual_ui.register_box(st, c.get("register"), f"d_{c['id']}")
+        manual_ui.register_box(st, c.get("register"), f"d_{c['id']}", c.get("other"))
 
 
 def today(st, ov, book):
@@ -162,9 +173,14 @@ def done_section(st, ov):
         st.caption("Azioni che hai registrato come eseguite: non vengono riproposte. Se i nuovi dati le richiedono di nuovo con un valore diverso, tornano in «DA FARE».")
         for i in items:
             with st.container(border=True):
-                st.markdown(f"{F.badge(i['badge'], 'green')} **{F.esc(str(i['title']))}**" + (f" · {F.esc(str(i['headline']))}" if i.get("headline") else ""), unsafe_allow_html=True)
+                sup = "raccomandazione superata: " if i.get("target_manual") else ""
+                st.markdown(f"{F.badge(i['badge'], 'green')} **{F.esc(str(i['title']))}**" + (f" · {sup}{F.esc(str(i['headline']))}" if i.get("headline") else ""), unsafe_allow_html=True)
                 _acct(st, i)
-                st.markdown(f"ESEGUITA IL {i['executed_text']}")
+                tm = i.get("target_manual")
+                if tm:
+                    _target_manual(st, i)
+                else:
+                    st.markdown(f"ESEGUITA IL {i['executed_text']}")
                 manual_ui.undo_button(st, i.get("action_id"))
 
 
@@ -178,7 +194,7 @@ def _opp_line(st, i):
     st.markdown(f"Clic {F.num(i['clicks'])} · Acquisti {F.num(i['orders'])} · Spesa {F.money(i['spend'])} · Vendite {F.money(i['sales'])} · "
                 f"ACOS {F.acos(i['acos'])} · Affidabilità {U.label_confidence(i['confidence'])}")
     st.markdown(f"_{i['reason']}_")
-    manual_ui.register_box(st, i.get("register"), f"{i['kind']}_{i['campaign']}_{i['term']}")
+    manual_ui.register_box(st, i.get("register"), f"{i['kind']}_{i['campaign']}_{i['term']}", i.get("other"))
 
 
 def exact_section(st, ov):
@@ -238,24 +254,31 @@ def promoted_section(st, ov):
 
 
 def products_section(st, ov):
+    """TARGET PRODOTTO DA VALUTARE, con sottostati: VINCENTI / INTERESSANTI MA TARGET COMPLESSIVO INEFFICIENTE / DA MONITORARE. Un target il cui padre e' inefficiente non sta mai
+    sotto un titolo che lo definisce vincente."""
     items = ov.get("products")
     if not items:
         return
     st.divider()
     st.header(U.OV_PRODUCTS)
-    for i in items:
-        with st.container(border=True):
-            st.markdown(f"{F.badge(i['badge'], 'green' if i.get('winner', True) else 'orange')} **ASIN {F.esc(i['asin'])}**", unsafe_allow_html=True)
-            _acct(st, i)
-            st.caption(f"Campagna: {i['campaign']} · Stato target: {U.label_status(i['status'])}")
-            st.markdown(f"Clic {F.num(i['clicks'])} · Acquisti {F.num(i['orders'])} · Spesa {F.money(i['spend'])} · Vendite {F.money(i['sales'])} · "
-                        f"ACOS {F.acos(i['acos'])}")
-            st.markdown(f"_{i['reason']}_")
-            op = i["operational"]
-            if op:
-                st.markdown(f"**STATO OPERATIVO DEL TARGET:** {F.badge(op['word'], 'yellow' if op['word'] == 'MONITORA' else 'grey')}", unsafe_allow_html=True)
-                st.markdown(op["text"])
-            st.caption("È un target per prodotto, non una keyword: non si promuove in EXACT." + (" Vincente solo se regge anche il target complessivo (30D)." if i.get("winner", True) else ""))
+    for state in O.PRODUCT_STATES:
+        group = [i for i in items if i.get("state", "WINNER") == state]
+        if not group:
+            continue
+        st.subheader(U.OV_PRODUCTS_SUB[state])
+        for i in group:
+            with st.container(border=True):
+                st.markdown(f"{F.badge(i['badge'], {'WINNER': 'green', 'INEFFICIENT': 'orange', 'MONITOR': 'yellow'}[state])} **ASIN {F.esc(i['asin'])}**", unsafe_allow_html=True)
+                _acct(st, i)
+                st.caption(f"Campagna: {i['campaign']} · Stato target: {U.label_status(i['status'])}")
+                st.markdown(f"Clic {F.num(i['clicks'])} · Acquisti {F.num(i['orders'])} · Spesa {F.money(i['spend'])} · Vendite {F.money(i['sales'])} · "
+                            f"ACOS {F.acos(i['acos'])}")
+                st.markdown(f"_{i['reason']}_")
+                op = i["operational"]
+                if op:
+                    st.markdown(f"**STATO OPERATIVO DEL TARGET:** {F.badge(op['word'], 'yellow' if op['word'] == 'MONITORA' else 'grey')}", unsafe_allow_html=True)
+                    st.markdown(op["text"])
+                st.caption("È un target per prodotto, non una keyword: non si promuove in EXACT." + (" Vincente solo se regge anche il target complessivo (30D)." if state == "WINNER" else ""))
 
 
 def conflicts_section(st, ov):
@@ -302,6 +325,7 @@ def delivery_section(st, ov, book=None):
         with st.container(border=True):
             st.markdown(f"{F.badge(i['badge'], 'orange')} **{F.esc(i['title'])}**", unsafe_allow_html=True)
             _acct(st, i)
+            _target_manual(st, i)
             st.markdown(f"Offerta {F.money(i['bid'])} · Impressioni ultimi {i['days']} giorni: **{F.num(i['impressions_30d'])}** · "
                         f"Clic: {F.num(i['clicks_30d'])} · Stato target: {U.label_status(i['status'])}")
             st.markdown(f"_{i['reason']}_")
@@ -320,6 +344,7 @@ def paused_section(st, ov):
         with st.container(border=True):
             st.markdown(f"{F.badge(c['badge'], 'grey')} **{F.esc(c['title'])}**", unsafe_allow_html=True)
             _acct(st, c)
+            _target_manual(st, c)
             st.markdown(f"_{c['reason']}_ · Spesa storica {F.money(c['spend'])} · Clic {F.num(c['clicks'])} · ACOS storico {_acos(c['acos']['lifetime'])}")
             if c["note"]:
                 st.caption(c["note"])
@@ -336,6 +361,7 @@ def monitor_section(st, ov):
         with st.container(border=True):
             st.markdown(f"{F.badge(c['badge'], 'yellow')} **{F.esc(c['title'])}**", unsafe_allow_html=True)
             _acct(st, c)
+            _target_manual(st, c)
             st.markdown(f"_{c['reason']}_")
             st.caption(f"ACOS storico {_acos(c['lifetime_acos'])} · ACOS ultimi {c['tactical_days']} giorni {_acos(c['tactical_acos'])} · "
                        f"Acquisti ultimi {c['tactical_days']} giorni {F.num(c['tactical_orders'])}")

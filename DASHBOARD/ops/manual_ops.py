@@ -14,6 +14,11 @@ def record_action(ws, payload: dict, executed_on: date | None = None, value_afte
     data = {k: v for k, v in (payload or {}).items() if v is not None or k in ("value_before", "value_after")}
     if value_after is not None:
         data["value_after"] = float(value_after)
+    at, vb, va = data.get("action_type"), data.get("value_before"), data.get("value_after")
+    if at == "BID_DOWN" and vb is not None and va is not None and float(va) >= float(vb):
+        return OpResult(False, [f"Per ABBASSA OFFERTA l'offerta impostata (${float(va):.2f}) deve essere più bassa di quella del report (${float(vb):.2f})"])
+    if at == "BID_UP" and vb is not None and va is not None and float(va) <= float(vb):
+        return OpResult(False, [f"Per ALZA OFFERTA l'offerta impostata (${float(va):.2f}) deve essere più alta di quella del report (${float(vb):.2f})"])
     when = executed_on or date.today()
     stamp = datetime.combine(when, datetime.now().time()).isoformat(timespec="seconds") if isinstance(when, date) else str(when)
     conn = connect(ws.db_path)

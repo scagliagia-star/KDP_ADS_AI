@@ -52,7 +52,7 @@ def main():
     present = {d.get("amazon_account_id") for d in decisions}
     if len(present) >= 2 and any(present):                 # piu' account (o account + campagne legacy senza account): filtro esplicito, mai mescolati in silenzio
         st.divider()
-        pick = st.selectbox(U.ACCOUNT_FILTER, ["ALL"] + sorted((a for a in present if a), key=str) + ([None] if None in present else []), key="ov_account",
+        pick = st.selectbox(U.ACCOUNT_FILTER, ["ALL"] + sorted((a for a in present if a), key=str) + ([None] if None in present else []), key=f"ov_account_{b['book_id']}_{ctx.marketplace}",
                             format_func=lambda a: U.ACCOUNT_ALL if a == "ALL" else (U.ACCOUNT_UNKNOWN if a is None else f"{names.get(a) or 'Account senza nome'} · {a}"))
         if pick != "ALL":
             decisions = [d for d in decisions if d.get("amazon_account_id") == pick]

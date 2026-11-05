@@ -119,8 +119,8 @@ class PanoramicaRegistryTests(unittest.TestCase):
         done = [e for e in at.expander if e.label.startswith("GIÀ ESEGUITO")]
         self.assertEqual(len(done), 1)
         body = "\n".join(m.value for m in done[0].markdown)
-        self.assertIn("ESEGUITA IL 04/", body)
-        self.assertIn("MESSO IN PAUSA", body)
+        self.assertIn("ULTIMA AZIONE MANUALE: PAUSA registrata il 04/", body)
+        self.assertIn("IN ATTESA DI CONFERMA DAL PROSSIMO REPORT", body)
         self.assertNotIn(tre.T_COLLECT, "\n".join(m.value for m in at.markdown if "COSA FARE" in m.value))
         self.assertLess(int({k.label: k.value for k in at.metric}["DA VALUTARE ORA"]), int(k0["DA VALUTARE ORA"]))
 

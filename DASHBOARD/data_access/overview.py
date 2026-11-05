@@ -172,6 +172,29 @@ def provably_inefficient(d: dict, book: dict) -> bool:
     return bool(not (d.get("lifetime_orders") or 0) and roy and _spend(d) >= PAUSED_WASTE_ROYALTY_MULT * float(roy))
 
 
+def _window_reason(d: dict, book: dict, pause: bool = False) -> str | None:
+    """Motivo di una riduzione/pausa costruito dalle metriche della finestra che l'ha GENERATA (30D, con la conferma 7D): clic, acquisti, spesa, ACOS reali. Mai zeri o «n/d» inventati
+    quando il dato esiste (es. un target senza storico Lifetime importato). None se la finestra decisionale non ha dati."""
+    tc = d.get("tactical_clicks")
+    if tc is None:
+        return None
+    td = window_days(d.get("tactical_window"), 30)
+    to_, ts, tac = d.get("tactical_orders") or 0, d.get("tactical_spend"), d.get("tactical_acos")
+    be, roy = book.get("break_even_acos"), book.get("royalty_per_copy")
+    if not to_:
+        s = f"Negli ultimi {td} giorni ha accumulato {plural(int(tc), 'clic', 'clic')} e {it_money(ts)} di spesa senza acquisti."
+        if roy and ts is not None:
+            s += f" La spesa è {str(round(float(ts) / float(roy), 1)).replace('.', ',')} volte la royalty."
+    else:
+        s = f"Negli ultimi {td} giorni ha avuto {plural(int(tc), 'clic', 'clic')}, {plural(int(to_), 'acquisto', 'acquisti')} e {it_money(ts)} di spesa: ACOS {it_pct(tac)}"
+        s += (f", sopra il pareggio {it_pct(be)}." if tac is not None and be is not None and tac > be else ".")
+    if d.get("trend_clicks") is not None:
+        s += f" Ultimi 7 giorni: {plural(int(d['trend_clicks']), 'clic', 'clic')} e {plural(int(d.get('trend_orders') or 0), 'acquisto', 'acquisti')}."
+    if (d.get("lifetime_orders") or 0) > 0:
+        s += f" Storico: {plural(int(d['lifetime_orders']), 'acquisto', 'acquisti')}" + (f", ACOS {it_pct(d.get('lifetime_acos'))}." if d.get("lifetime_acos") is not None else ".")
+    return s + (" Valuta di metterlo in pausa." if pause else " Riduzione prudente dell'offerta.")
+
+
 def short_reason(d: dict, book: dict) -> str:
     """Motivo breve in italiano semplice, costruito dai numeri della decisione (mai codici tecnici)."""
     fa, tgt = d.get("final_action"), book.get("target_acos")
@@ -181,6 +204,15 @@ def short_reason(d: dict, book: dict) -> str:
     sig = d.get("recent_vs_historical_signal")
     zero_orders = (d.get("lifetime_orders") or 0) == 0 and life is None           # 0 acquisti: ACOS n/d, mai confrontato con obiettivo o pareggio
     roy = book.get("royalty_per_copy")
+    from_window = d.get("lifetime_clicks") is None or str(d.get("decision_rule") or "").startswith(("R1", "R3"))        # escalation recente / nessun Lifetime importato
+    if fa in ("BID_DOWN_5_CANDIDATE", "BID_DOWN_10_CANDIDATE", "BID_DOWN_15_CANDIDATE") and from_window:
+        txt = _window_reason(d, book)
+        if txt:
+            return txt
+    if fa == "PAUSE_CANDIDATE" and from_window:
+        txt = _window_reason(d, book, pause=True)
+        if txt:
+            return txt
     if fa in ("BID_DOWN_5_CANDIDATE", "BID_DOWN_10_CANDIDATE", "BID_DOWN_15_CANDIDATE") and zero_orders:
         ratio = (f" La spesa è {str(round(_spend(d) / float(roy), 1)).replace('.', ',')} volte la royalty:" if roy else " La spesa ha superato la soglia:")
         return (f"Ha accumulato {plural(d.get('lifetime_clicks') or 0, 'clic', 'clic')} e {it_money(d.get('lifetime_spend'))} di spesa senza acquisti." + ratio
@@ -438,10 +470,12 @@ def product_state(d: dict, state_of: dict | None = None) -> dict:
 
 
 PRODUCT_INTERESTING_BADGE = "TERMINE/PRODOTTO INTERESSANTE, MA TARGET COMPLESSIVO INEFFICIENTE"
+PRODUCT_WINNER_BADGE, PRODUCT_MONITOR_BADGE = "TARGET PRODOTTO VINCENTE", "TARGET PRODOTTO DA MONITORARE"
+PRODUCT_STATES = ("WINNER", "INEFFICIENT", "MONITOR")                     # sottostati della sezione TARGET PRODOTTO DA VALUTARE
 
 
 def product_winner_items(records: list, decisions=None, state_of=None) -> list:
-    """TARGET PRODOTTO VINCENTE: classificazione INFORMATIVA derivata dai Search Term (un ASIN non e' una keyword: mai 'METTI IN EXACT').
+    """TARGET PRODOTTO DA VALUTARE (sottostati: VINCENTE / INTERESSANTE MA TARGET COMPLESSIVO INEFFICIENTE / DA MONITORARE): classificazione INFORMATIVA derivata dai Search Term (un ASIN non e' una keyword: mai 'METTI IN EXACT').
     VALIDATION GATE: il prodotto puo' nascere dai Search Term, ma il TARGET PADRE (Targeting 30D complessivo) deve reggere: se e' inefficiente (ACOS 30D oltre il pareggio, o 7D
     a secco) la scheda NON dice «vincente» ma «TERMINE/PRODOTTO INTERESSANTE, MA TARGET COMPLESSIVO INEFFICIENTE».
     Non genera nessuna decisione: lo stato operativo, se c'e', e' quello del decision layer per quel product target; senza decisione si mostrano solo i dati Search Term. Nessun KPI."""
@@ -449,12 +483,15 @@ def product_winner_items(records: list, decisions=None, state_of=None) -> list:
     for r in rank(records, PRODUCT_WINNER):
         d = _product_decision(decisions, r)
         bad = bool(r.get("parent_inefficient"))
+        unverified = (not bad) and r.get("parent_validation") == "UNVERIFIED"
+        state = "INEFFICIENT" if bad else ("MONITOR" if unverified else "WINNER")
         reason = f"Ha generato {plural(r.get('orders') or 0, 'acquisto', 'acquisti')} con ACOS {it_pct(r.get('acos'))} nei termini/prodotti recenti."
         if bad:
             reason += f" Ma il target complessivo è inefficiente: {r.get('parent_validation_reason')}."
         elif r.get("parent_validation") == "UNVERIFIED":
             reason += " Il target complessivo non è verificabile con i dati importati."
-        out.append({"kind": "PRODUCT", "badge": PRODUCT_INTERESTING_BADGE if bad else "TARGET PRODOTTO VINCENTE", "winner": not bad, "parent_inefficient": bad,
+        out.append({"kind": "PRODUCT", "badge": {"INEFFICIENT": PRODUCT_INTERESTING_BADGE, "MONITOR": PRODUCT_MONITOR_BADGE, "WINNER": PRODUCT_WINNER_BADGE}[state], "state": state,
+                    "winner": state == "WINNER", "parent_inefficient": bad,
                     "asin": r.get("product_asin") or str(r["search_term"]).upper(),
                     "campaign": r["campaign_id"], "status": (d or {}).get("target_status") or r.get("target_status"), "clicks": r.get("clicks"),
                     "orders": r.get("orders"), "spend": r.get("spend"), "sales": r.get("sales"), "acos": r.get("acos"), "reason": reason,
@@ -606,17 +643,76 @@ def _manual_state(res: dict, symbol="$") -> dict:
     return {"state": res["state"], "last": last, "last_text": MA.describe(last, symbol) if last else None}
 
 
+_PERIOD_END = re.compile(r"(\d{4}-\d{2}-\d{2})\s*$")
+_ASIN_TARGET = re.compile(r"^\s*asin(-expanded)?\s*=", re.I)
+
+
+def report_date(d: dict) -> str | None:
+    """Data (YYYY-MM-DD) dell'ultimo report Amazon che ha alimentato la decisione: la fine del periodo 30D o 7D piu' recente. None se non nota."""
+    ends = []
+    for k in ("tactical_period", "trend_period"):
+        m = _PERIOD_END.search(str(d.get(k) or ""))
+        if m:
+            ends.append(m.group(1))
+    return max(ends) if ends else None
+
+
+def _day(text) -> str:
+    return str(text or "")[:10]
+
+
+def _it_date(iso: str) -> str:
+    try:
+        y, m, dd = iso[:10].split("-")
+        return f"{dd}/{m}/{y}"
+    except ValueError:
+        return iso
+
+
+STATUS_WORDS = {"ENABLED": "ATTIVO", "PAUSED": "IN PAUSA"}
+
+
+def target_manual_status(d: dict, executed: list) -> dict | None:
+    """STATO DA REPORT vs ULTIMA AZIONE MANUALE di un target (PAUSA / RIATTIVA registrate dall'utente). Fino al prossimo report Amazon la registrazione e' una DICHIARAZIONE
+    dell'utente, non una conferma: PENDING = «in attesa di conferma dal prossimo report»; CONFIRMED = il report mostra lo stato dichiarato; CONTRADICTED = un report PIU' RECENTE
+    della modifica mostra ancora lo stato opposto (la registrazione non conta: l'azione non risulta fatta). None se per il target non c'e' nessuna pausa/riattivazione registrata."""
+    if not executed or d.get("search_term"):
+        return None
+    found = MA.matching(executed, account_id=d.get("amazon_account_id"), marketplace=d.get("marketplace"), book_id=d.get("book_id"), campaign_id=d.get("campaign_id"),
+                        amazon_campaign_id=d.get("amazon_campaign_id"), target=d.get("target"), family=MA.STATE_FAMILY)
+    if not found:
+        return None
+    last = found[-1]
+    status = d.get("target_status") if d.get("target_status") in STATUS_WORDS else None
+    want = "PAUSED" if last["action_type"] == "PAUSE" else "ENABLED"
+    rdate, adate = report_date(d), _day(last.get("executed_at"))
+    if status == want:
+        state, text = "CONFIRMED", "CONFERMATO DAL REPORT"
+    elif status and rdate and rdate > adate:
+        state, text = "CONTRADICTED", "IL REPORT PIÙ RECENTE NON MOSTRA ANCORA QUESTO STATO: verifica su Amazon"
+    else:
+        state, text = "PENDING", "IN ATTESA DI CONFERMA DAL PROSSIMO REPORT"
+    word = "PAUSA" if last["action_type"] == "PAUSE" else "RIATTIVAZIONE"
+    return {"action": last, "state": state, "confirmation_text": text, "report_status": STATUS_WORDS.get(status, "n/d"), "report_date": rdate,
+            "manual_text": f"ULTIMA AZIONE MANUALE: {word} registrata il {_it_date(adate)}",
+            "report_text": f"STATO DA REPORT: {STATUS_WORDS.get(status, 'n/d')}" + (f" (report al {_it_date(rdate)})" if rdate else "")}
+
+
 def decision_manual(d: dict, executed: list, symbol="$") -> dict | None:
-    """Stato rispetto al registro per una decisione operativa (None = azione senza equivalente manuale registrabile, es. VERIFICA EROGAZIONE)."""
+    """Stato rispetto al registro per una decisione operativa (None = azione senza equivalente manuale registrabile, es. VERIFICA EROGAZIONE). Una PAUSA/RIATTIVAZIONE registrata
+    ma CONTRADDETTA da un report piu' recente non conta (target_manual_status): la raccomandazione torna in «DA FARE»."""
     at = MA.DECISION_ACTION.get(d.get("final_action"))
     if not at:
         return None
+    ms = target_manual_status(d, executed)
+    if ms and ms["state"] == "CONTRADICTED":
+        executed = [a for a in executed if a.get("action_id") != ms["action"].get("action_id")]
     b = bid_info(d)
     neg = at == "ADD_NEGATIVE_EXACT"
     res = MA.classify(executed, account_id=d.get("amazon_account_id"), marketplace=d.get("marketplace"), book_id=d.get("book_id"), action_type=at,
                       campaign_id=d.get("campaign_id"), amazon_campaign_id=d.get("amazon_campaign_id"), target=None if neg else d.get("target"),
                       search_term=d.get("search_term") if neg else None, value_after=b["suggested"] if b else None)
-    return _manual_state(res, symbol)
+    return {**_manual_state(res, symbol), "target": ms}
 
 
 def decision_register(d: dict) -> dict | None:
@@ -629,6 +725,42 @@ def decision_register(d: dict) -> dict | None:
     return {"action_type": at, "book_id": d.get("book_id"), "marketplace": d.get("marketplace"), "account_id": d.get("amazon_account_id"), "campaign_id": d.get("campaign_id"),
             "amazon_campaign_id": d.get("amazon_campaign_id"), "target": None if neg else d.get("target"), "search_term": d.get("search_term") if neg else None,
             "value_before": b["current"] if b else None, "value_after": b["suggested"] if b else None, "source_decision_id": d.get("decision_id"), "source_run_id": d.get("run_id")}
+
+
+def other_identity(d: dict) -> dict:
+    """Identita' della card per «HO FATTO UN'ALTRA MODIFICA»: tipo di entita' (TARGET / ASIN), campi di identita' e offerta del report. Nessun action_type: lo sceglie l'utente
+    tra OTHER_ACTIONS del tipo (mai testo libero)."""
+    b = bid_info(d)
+    kind = "ASIN" if _ASIN_TARGET.match(str(d.get("target") or "")) else "TARGET"
+    return {"kind": kind, "label": card_title(d), "book_id": d.get("book_id"), "marketplace": d.get("marketplace"), "account_id": d.get("amazon_account_id"),
+            "campaign_id": d.get("campaign_id"), "amazon_campaign_id": d.get("amazon_campaign_id"), "target": d.get("target"), "term": None,
+            "current_bid": float(d["current_bid"]) if d.get("current_bid") is not None else None, "suggested_bid": b["suggested"] if b else None,
+            "source_decision_id": d.get("decision_id"), "source_run_id": d.get("run_id")}
+
+
+def item_other_identity(item: dict, otype: str, book: dict) -> dict:
+    rr = item.get("record") or {}
+    return {"kind": "TERM", "label": item.get("term"), "book_id": book.get("book_id"), "marketplace": book.get("marketplace"), "account_id": rr.get("amazon_account_id"),
+            "campaign_id": rr.get("campaign_id"), "amazon_campaign_id": rr.get("amazon_campaign_id"), "target": None, "term": item.get("term"), "current_bid": None,
+            "suggested_bid": None, "source_decision_id": None, "source_run_id": None}
+
+
+def other_payload(identity: dict, action_type: str, value_after=None) -> dict:
+    """Payload di registrazione per l'azione SCELTA dall'utente. Solo tipi ammessi per l'entita' (OTHER_ACTIONS). value_before = offerta del REPORT, value_after = quella
+    realmente impostata (mai il suggerimento). Negativa / EXACT su una keyword: il soggetto e' il testo della keyword."""
+    if action_type not in MA.OTHER_ACTIONS.get(identity["kind"], ()):
+        raise MA.ManualActionError(f"Azione non compatibile con questo elemento: {action_type}")
+    p = {"action_type": action_type, "book_id": identity["book_id"], "marketplace": identity["marketplace"], "account_id": identity["account_id"],
+         "campaign_id": identity["campaign_id"], "amazon_campaign_id": identity["amazon_campaign_id"], "source_decision_id": identity.get("source_decision_id"),
+         "source_run_id": identity.get("source_run_id")}
+    if action_type in MA.TARGET_ACTIONS:
+        p["target"] = identity["target"]
+    else:
+        p["search_term"] = identity["term"] or identity["target"]
+    if action_type in MA.BID_FAMILY:
+        p["value_before"] = identity.get("current_bid")
+        p["value_after"] = None if value_after is None else float(value_after)
+    return p
 
 
 def record_manual_type(otype: str, item: dict) -> str:
@@ -673,7 +805,7 @@ def _done_entry(source: str, obj: dict, m: dict) -> dict:
     last = m["last"] or {}
     return {"kind": "DONE", "source": source, "badge": DONE_BADGE, "title": obj.get("title") or obj.get("term") or "n/d", "headline": obj.get("headline") or obj.get("badge"),
             "executed_text": m["last_text"], "action_id": last.get("action_id"), "action_type": last.get("action_type"), "account": obj.get("account"),
-            "campaign_line": obj.get("campaign_line"), "item": obj}
+            "campaign_line": obj.get("campaign_line"), "item": obj, "target_manual": (m or {}).get("target")}
 
 
 def build_overview(decisions: list, book: dict, summary: dict, warnings: list, opp: dict | None, parse_detail=None, symbol="$", account_names: dict | None = None,
@@ -729,6 +861,7 @@ def build_overview(decisions: list, book: dict, summary: dict, warnings: list, o
         m = decision_manual(d, executed, symbol) if executed else None
         c["manual"] = m
         c["register"] = decision_register(d)
+        c["other"] = other_identity(d)
         if m and m["state"] == MA.DONE:
             done_raw.append(("DECISION", c, m))
         else:
@@ -737,12 +870,14 @@ def build_overview(decisions: list, book: dict, summary: dict, warnings: list, o
     if exact_items is not None:
         for it in exact_items:
             it["register"] = item_register(it, PROMOTE, book)
+            it["other"] = item_other_identity(it, PROMOTE, book)
             it["manual"] = item_manual(it, PROMOTE, book, executed, symbol) if executed else None
         done_raw += [("EXACT", it, it["manual"]) for it in exact_items if it["manual"] and it["manual"]["state"] == MA.DONE]
         exact_items = [it for it in exact_items if not (it["manual"] and it["manual"]["state"] == MA.DONE)]
     if neg_items is not None:
         for it in neg_items:
             it["register"] = item_register(it, NEGATIVE, book)
+            it["other"] = item_other_identity(it, NEGATIVE, book)
             it["manual"] = item_manual(it, NEGATIVE, book, executed, symbol) if executed else None
         done_raw += [("NEGATIVE", it, it["manual"]) for it in neg_items if it["manual"] and it["manual"]["state"] == MA.DONE]
         neg_items = [it for it in neg_items if not (it["manual"] and it["manual"]["state"] == MA.DONE)]
@@ -767,6 +902,8 @@ def build_overview(decisions: list, book: dict, summary: dict, warnings: list, o
     for lst in list(cards.values()) + [[c for src, c, _m in done_raw if src == "DECISION"]]:
         for c in lst:
             dd = c.get("decision") or {}
+            if executed and dd:
+                c["target_manual"] = (c.get("manual") or {}).get("target") or target_manual_status(dd, executed)
             c["account"] = account_text(dd.get("amazon_account_id"), names)
             c["campaign_line"] = campaign_text(dd.get("campaign_name"), dd.get("amazon_campaign_id"), internal_id=dd.get("campaign_id"),
                                                show_legacy=str(dd.get("campaign_type") or "") in multi)

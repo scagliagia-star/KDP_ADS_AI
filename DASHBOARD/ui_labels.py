@@ -48,6 +48,9 @@ OV_DONE = "GIÀ ESEGUITO"
 OV_REGISTER = "HO FATTO QUESTA MODIFICA"
 OV_REGISTER_NOTE = "Registra la modifica solo nel database locale (data e valori): non cambia nulla su Amazon Ads. Serve a non riproporre la stessa azione la settimana dopo."
 OV_REGISTER_DONE = "Registra"
+OV_OTHER = "HO FATTO UN'ALTRA MODIFICA"
+OV_OTHER_NOTE = "Registra l'azione che hai fatto davvero su Amazon Ads (solo nel database locale): scegli il tipo di modifica e, per le offerte, il valore realmente impostato."
+OV_OTHER_CONFIRM = "CONFERMA E REGISTRA"
 ACCOUNT_FILTER = "Account Amazon Ads"
 ACCOUNT_ALL = "TUTTI GLI ACCOUNT"
 ACCOUNT_UNKNOWN = "Account non noto (campagne legacy)"
@@ -73,7 +76,8 @@ GROW_EMPTY = {"SCALE": "Nessun target candidato allo scaling con i gate prudenti
               "DEVELOP": "Nessuna campagna con copertura insufficiente.",
               "NEW_PRODUCT": "Nessun nuovo target prodotto supportato dai dati."}
 OV_PROMOTED = "KEYWORD GIÀ PROMOSSE IN EXACT"
-OV_PRODUCTS = "TARGET PRODOTTO VINCENTE"
+OV_PRODUCTS = "TARGET PRODOTTO DA VALUTARE"
+OV_PRODUCTS_SUB = {"WINNER": "VINCENTI", "INEFFICIENT": "INTERESSANTI, MA TARGET COMPLESSIVO INEFFICIENTE", "MONITOR": "DA MONITORARE"}
 OV_DELIVERY = "EROGAZIONE DA VERIFICARE"
 OV_PAUSED = "TARGET IN PAUSA RILEVANTI"
 OV_MONITOR = "DA MONITORARE"

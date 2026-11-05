@@ -300,7 +300,7 @@ class RealCoinBookTests(unittest.TestCase):
     def test_page_ok_and_coin_collection_supplies_is_promoted_not_conflict(self):
         self.assertFalse(self.at.exception)
         self.assertNotIn("CONFLITTO DA VERIFICARE", self.text)
-        promoted = self.block("KEYWORD GIÀ PROMOSSE IN EXACT", "TARGET PRODOTTO VINCENTE")
+        promoted = self.block("KEYWORD GIÀ PROMOSSE IN EXACT", "TARGET PRODOTTO DA VALUTARE")
         self.assertIn("**coin collection supplies**", promoted)
         self.assertRegex(promoted, r"PROMOSSA IN EXACT( · ATTUALMENTE IN PAUSA)?")
         self.assertIn("attualmente in pausa", promoted)                       # l'EXACT reale e' IN PAUSA
@@ -309,7 +309,7 @@ class RealCoinBookTests(unittest.TestCase):
         exact = self.block("KEYWORD DA METTERE IN EXACT", "KEYWORD DA VALUTARE COME NEGATIVE")
         self.assertNotIn("0794851630", exact)
         self.assertIn("**rare coin book**", exact)                              # resta una vera opportunita' EXACT
-        prod = self.block("TARGET PRODOTTO VINCENTE\n", "EROGAZIONE DA VERIFICARE")
+        prod = self.block("TARGET PRODOTTO DA VALUTARE\n", "EROGAZIONE DA VERIFICARE")
         self.assertIn("ASIN 0794851630", prod)
         self.assertIn("Ha generato 3 acquisti con ACOS 32,1% nei termini/prodotti recenti.", prod)
         self.assertNotIn("STATO OPERATIVO", prod)                    # il run #12 salvato non ha una decisione per asin= (bug identita' storico)

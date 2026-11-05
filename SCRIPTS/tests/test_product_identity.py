@@ -189,7 +189,7 @@ class RealOverviewTests(unittest.TestCase):
         exp = text.split("asin-expanded=&quot;0794851630&quot;")[1].split("GIÀ IN PAUSA")[0].split("\n")[:3]
         self.assertTrue(any("Spesa storica $5.67" in x and "Clic 10" in x for x in exp), exp)                # dati propri dell'expanded in pausa
         self.assertNotIn("$62.63", "\n".join(exp))
-        prod = text.split("TARGET PRODOTTO VINCENTE")[2].split("EROGAZIONE DA VERIFICARE")[0]
+        prod = text.split("TARGET PRODOTTO DA VALUTARE")[1].split("EROGAZIONE DA VERIFICARE")[0]
         self.assertIn("Ha generato 3 acquisti con ACOS 32,1% nei termini/prodotti recenti.", prod)
         self.assertIn("STATO OPERATIVO DEL TARGET:** MONITORA", prod)
         self.assertIn("Il target complessivo ha ACOS 42,1% negli ultimi 30 giorni. Per ora non modificare l'offerta.", prod)
