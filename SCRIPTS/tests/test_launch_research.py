@@ -468,6 +468,10 @@ class PageTests(unittest.TestCase):
         self.lid = sorted((self.root / "LAUNCH").glob("*.json"))[0].stem
 
     def btn(self, label):
+        if label == "GENERA PIANO BASE DALLA BOZZA":                                      # con la ricerca importata il piano base e' il fallback dietro l'opzione esplicita
+            ch = [c for c in self.at.checkbox if c.label.startswith("Vedi anche piano base")]
+            if ch:
+                ch[0].check().run()
         return [b for b in self.at.button if b.label == label][0]
 
     def upload(self, name, data):
@@ -479,7 +483,7 @@ class PageTests(unittest.TestCase):
                           + [e.value for e in self.at.error] + [i.value for i in self.at.info] + [c.value for c in self.at.caption] + [m.value for m in self.at.markdown])
 
     def test_section_present_and_import_requires_dry_run(self):
-        self.assertIn("RICERCA COMPETITOR / PUBLISHER ROCKET", [h.value for h in self.at.header])
+        self.assertIn("RICERCA KEYWORD PER IL LANCIO", [h.value for h in self.at.header])
         self.assertEqual(list(self.at.file_uploader[0].proto.type), [".csv", ".xlsx", ".xls"])
         self.upload("cp.csv", csv_bytes(CP_HEADER, CP_ROWS))
         self.assertTrue(self.btn("IMPORTA FILE VALIDI NELLA BOZZA").disabled)                              # prima del dry run: import bloccato
@@ -502,7 +506,7 @@ class PageTests(unittest.TestCase):
         self.assertIn("File importati nella bozza", txt)
         self.assertIn("Competitor arricchito da Publisher Rocket", txt)
         self.assertIn("Competitor candidato", txt)
-        self.btn("GENERA PIANO KEYWORD").click().run()
+        self.btn("GENERA PIANO BASE DALLA BOZZA").click().run()
         self.assertFalse(self.at.exception)
         kp = json.loads((self.root / "LAUNCH" / f"{self.lid}.json").read_text(encoding="utf-8"))["keyword_plan"]
         self.assertTrue(kp["competitor_data_available"])
@@ -524,7 +528,7 @@ class PageTests(unittest.TestCase):
         self.assertTrue(launch_ops.import_research(ws, self.lid, "kw.csv", csv_bytes(KW_HEADER, KW_ROWS)).ok)
         self.at = AppTest.from_file(str(PAGE), default_timeout=60).run()
         self.at.selectbox[0].set_value(self.lid).run()
-        self.btn("GENERA PIANO KEYWORD").click().run()
+        self.btn("GENERA PIANO BASE DALLA BOZZA").click().run()
         cols = set()
         for df in self.at.dataframe:
             cols |= set(df.value.columns)
@@ -788,7 +792,7 @@ class BatchPageTests(PageTests):
         self.upload_many(f1(), f2(), f3())
         self.btn("ANALIZZA TUTTI / DRY RUN").click().run()
         self.btn("IMPORTA FILE VALIDI NELLA BOZZA").click().run()
-        self.btn("GENERA PIANO KEYWORD").click().run()
+        self.btn("GENERA PIANO BASE DALLA BOZZA").click().run()
         self.assertFalse(self.at.exception)
         kp = json.loads((self.root / "LAUNCH" / f"{self.lid}.json").read_text(encoding="utf-8"))["keyword_plan"]
         self.assertEqual(kp["research"]["files"], ["pr1.csv", "pr2.xlsx", "pr3.csv"])

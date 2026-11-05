@@ -382,7 +382,8 @@ class PageNoiseTests(unittest.TestCase):
         self.assertTrue(r.ok, r.errors)
         self.at = AppTest.from_file(str(PAGE), default_timeout=90).run()
         self.at.selectbox[0].set_value(self.lid).run()
-        [b for b in self.at.button if b.label == "GENERA PIANO KEYWORD"][0].click().run()
+        [c for c in self.at.checkbox if c.label.startswith("Vedi anche piano base")][0].check().run()                                         # con la ricerca importata il piano base e' il fallback dietro l'opzione esplicita
+        [b for b in self.at.button if b.label == "GENERA PIANO BASE DALLA BOZZA"][0].click().run()
         self.assertFalse(self.at.exception)
 
     def frames(self):
@@ -411,7 +412,7 @@ class PageNoiseTests(unittest.TestCase):
         self.assertTrue(any("Mostro le prime 30" in c.value for c in self.at.caption))
         for c in ("Pertinenza", "Mercato", "Punteggio finale", "Metriche Publisher Rocket", "Competitor a supporto", "Motivo"):
             self.assertIn(c, fr["DISCOVERY"][1].columns)
-        self.at.checkbox[0].check().run()                                                    # "Mostra tutte le keyword"
+        [c for c in self.at.checkbox if c.label.startswith("Mostra tutte")][0].check().run()                                                    # "Mostra tutte le keyword"
         fr2 = self.frames()
         self.assertEqual(len(fr2["DISCOVERY"][1]), total_disc)
         self.assertFalse(any("Mostro le prime 30" in c.value for c in self.at.caption))

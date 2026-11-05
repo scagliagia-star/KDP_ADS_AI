@@ -292,7 +292,7 @@ class PageTests(unittest.TestCase):
         at = self.run_page()
         self.assertFalse(at.exception)
         t = self.texts(at)
-        self.assertIn("Fonte esterna: Helium 10 Cerebro", t)
+        self.assertIn("Fonte esterna: Publisher Rocket / Helium 10 Cerebro", t)
         self.assertIn("Nessuna ricerca competitor importata.", t)
         self.assertIn("Associa questa ricerca a un libro", [s.label for s in at.selectbox])
         self.assertEqual(at.selectbox[0].options[0], "Nessun libro — ricerca nuova opportunità editoriale")
@@ -309,8 +309,8 @@ class PageTests(unittest.TestCase):
         conn.close()
         at = self.run_page()
         self.assertFalse(at.exception, at.exception)
-        self.assertEqual(len(at.tabs), 8)
-        self.assertEqual([t.label for t in at.tabs], ["PANORAMICA", "KEYWORD COMUNI", "KEYWORD DI LANCIO", "KEYWORD GAP", "OPPORTUNITÀ ADS", "OPPORTUNITÀ EDITORIALI", "COMPETITOR", "DATI GREZZI"])
+        self.assertEqual(len(at.tabs), 9)
+        self.assertEqual([t.label for t in at.tabs], ["PIANO KEYWORD", "PANORAMICA", "KEYWORD COMUNI", "KEYWORD DI LANCIO", "KEYWORD GAP", "OPPORTUNITÀ ADS", "OPPORTUNITÀ EDITORIALI", "COMPETITOR", "DATI GREZZI"])
         t1 = self.texts(at)                                            # progetto piu' recente = EXISTING_BOOK
         for need in ("3 competitor analizzati", "4 keyword presenti su 3/3", "keyword da valutare in FRASE", "opportunità principali da approfondire",
                      "NUOVA OPPORTUNITÀ DERIVATA", "TESTA IN FRASE", "Nessuna decisione editoriale automatica", "Segnale di mercato / competitor branded query"):

@@ -70,6 +70,8 @@ import json  # noqa: E402
 import re  # noqa: E402
 from pathlib import Path  # noqa: E402
 
+from kdp_ads import cerebro as CB  # noqa: E402
+from kdp_ads import keyword_research as KR  # noqa: E402
 from kdp_ads import launch_research  # noqa: E402
 
 
@@ -88,6 +90,8 @@ def load_research(ws, launch_id: str) -> list:
     plan = get_plan(ws, launch_id) or {}
     out = []
     for f in (plan.get("research") or {}).get("files", []):
+        if f.get("source") == KR.SOURCE_CEREBRO:           # i file Cerebro hanno un loro caricamento (load_cerebro): il motore Rocket resta invariato
+            continue
         d = research_dir(ws, launch_id)
         try:
             rec = json.loads((d / f.get("normalized", "")).read_text(encoding="utf-8"))
@@ -109,8 +113,104 @@ def research_dry_run(ws, launch_id: str, name: str, data: bytes) -> OpResult:
     if plan is None:
         return OpResult(False, ["Bozza non trovata"])
     plan = {**plan, "_research_records": load_research(ws, launch_id)}
-    rep = launch_research.dry_run_report(plan, name, data)
+    rep = _dry_run_any(ws, plan, launch_id, name, data)
     return OpResult(rep["status"] == "DRY_RUN_OK", rep["problems"], data=rep)
+
+
+def _dry_run_any(ws, plan: dict, launch_id: str, name: str, data: bytes) -> dict:
+    """Riconoscimento AUTOMATICO del formato (KR.detect_format): Cerebro -> _cerebro_dry_run; colonne Cerebro incomplete -> formato sconosciuto con le colonne rilevate (mai forzato
+    nel parser Rocket); tutto il resto -> il dry run Publisher Rocket esistente, invariato."""
+    det = KR.detect_format(name, data or b"")
+    if det["format"] == KR.SOURCE_CEREBRO:
+        return _cerebro_dry_run(ws, plan, launch_id, name, data, det)
+    if det["format"] == KR.SOURCE_UNKNOWN and det["missing"]:
+        return {"file_name": name, "ok": False, "warnings": [], "status": "UNRECOGNIZED", "format": None, "size": len(data or b""), "problems": [det["message"]],
+                "summary_text": det["message"]}
+    rep = launch_research.dry_run_report(plan, name, data)
+    if rep.get("record"):
+        rep["source"] = launch_research.SOURCE
+        rep["summary_text"] = f"✓ {KR.FORMAT_LABELS[KR.SOURCE_ROCKET]} · {rep['keywords_found']} keyword"
+    return rep
+
+
+def _cerebro_dry_run(ws, plan: dict, launch_id: str, name: str, data: bytes, det: dict) -> dict:
+    """Dry run di UN file Cerebro per la bozza: nessuna scrittura. Un export XLSX e' riconosciuto ma NON importabile (messaggio esplicito). Un solo file per competitor, al massimo 5."""
+    base = {"file_name": name, "ok": False, "warnings": [], "source": KR.SOURCE_CEREBRO, "format": KR.FORMAT_LABELS[KR.SOURCE_CEREBRO], "size": len(data or b"")}
+    if not str(name or "").lower().endswith(".csv"):
+        return {**base, "status": "ERROR", "problems": [KR.CEREBRO_XLSX_MESSAGE], "summary_text": f"{name}: {KR.CEREBRO_XLSX_MESSAGE}"}
+    try:
+        rec = CB.parse_cerebro(name, data)
+    except CB.CerebroError as e:
+        return {**base, "status": "ERROR", "problems": [str(e)], "summary_text": f"{name}: {e}"}
+    warnings = list(rec["warnings"])
+    if not rec["asin"]:                                  # nessun identificativo nel nome del file: provvisorio (mai un errore: il competitor serve solo a contare le presenze)
+        rec["asin"], rec["asin_source"] = "CEREBRO-" + rec["sha256"][:8], "TEMP"
+        warnings.append("Competitor non ricavabile dal nome del file: usato un identificativo provvisorio")
+    files = (plan.get("research") or {}).get("files", [])
+    cerebro_files = [f for f in files if f.get("source") == KR.SOURCE_CEREBRO]
+    problems, status = [], "DRY_RUN_OK"
+    if rec["sha256"] in {f.get("sha256") for f in files}:
+        status, problems = "SKIPPED_DUPLICATE", ["Stesso contenuto gia' importato in questa bozza: nessun nuovo import"]
+    elif any(f.get("competitor_id") == rec["asin"] for f in cerebro_files):
+        status, problems = "ERROR", [f"Il competitor {rec['asin']} e' gia' nella bozza (un solo file Cerebro per competitor)"]
+    elif len(cerebro_files) >= 5:
+        status, problems = "ERROR", ["Una bozza puo' avere al massimo 5 competitor Cerebro"]
+    prior = load_cerebro(ws, launch_id)
+    res = KR.build(KR.agg_from_parsed(prior + [rec]), load_research(ws, launch_id), KR.profile_from_plan(plan))
+    mine = {CB.normalize_keyword(r["keyword"]) for r in rec["rows"]}
+    rows = [r for r in res["rows"] if r["keyword_norm"] in mine]
+    pert = [r for r in rows if r["priority"] in (KR.P1, KR.P2, KR.P3)]
+    disc = [r for r in rows if r["priority"] not in (KR.P1, KR.P2, KR.P3)]
+    metrics = {}
+    for row in rec["rows"]:
+        for k, v in row.items():
+            if k not in ("keyword", "keyword_norm", "raw") and v is not None:
+                metrics[k] = metrics.get(k, 0) + 1
+    text = f"✓ {KR.FORMAT_LABELS[KR.SOURCE_CEREBRO]} · Competitor: {rec['asin']} · {len(rec['rows'])} keyword"
+    return {**base, "status": status, "ok": status == "DRY_RUN_OK", "sheet": None, "sha256": rec["sha256"], "rows": len(rec["rows"]), "header_row": 1, "kind": "KEYWORD COMPETITOR (Cerebro)",
+            "columns": [{"header": c["header"], "canonical": c["canonical"]} for c in rec["columns"]], "unmapped": rec["unmapped"], "keywords_found": len(rec["rows"]),
+            "keywords_sample": [r["keyword"] for r in rec["rows"][:10]], "asins_found": 0, "asins_sample": [], "metrics_present": dict(sorted(metrics.items())),
+            "competitors_enriched": [], "competitor_candidates": [], "competitor_id": rec["asin"],
+            "keyword_preview": {"pertinent": len(pert), "discarded": len(disc), "pertinent_sample": [{"keyword": r["keyword"], "match": r["launch_type"], "confidence": r["priority_label"],
+                                                                                                     "research_bonus": 0} for r in pert[:8]],
+                                "discarded_sample": [{"keyword": r["keyword"], "match": r["priority_label"], "confidence": "", "research_bonus": 0} for r in disc[:8]]},
+            "warnings": warnings, "problems": problems, "summary_text": text, "record": rec}
+
+
+def load_cerebro(ws, launch_id: str) -> list:
+    """Record Cerebro normalizzati (cerebro.parse_cerebro) dei file importati nella bozza, in ordine di import. Un file illeggibile viene saltato; un parser piu' vecchio rilegge l'originale in memoria."""
+    plan = get_plan(ws, launch_id) or {}
+    out = []
+    d = research_dir(ws, launch_id)
+    for f in (plan.get("research") or {}).get("files", []):
+        if f.get("source") != KR.SOURCE_CEREBRO:
+            continue
+        try:
+            rec = json.loads((d / f.get("normalized", "")).read_text(encoding="utf-8"))
+            if rec.get("parser_version") != CB.PARSER_VERSION:
+                rec = CB.parse_cerebro(f["file_name"], (d / f["stored_as"]).read_bytes(), asin=f.get("competitor_id"))
+        except (OSError, ValueError, KeyError, CB.CerebroError):
+            continue
+        rec["asin"] = f.get("competitor_id") or rec.get("asin")
+        out.append(rec)
+    return out
+
+
+def research_analysis(ws, launch_id: str, extra: str | None = None) -> dict | None:
+    """ANALISI KEYWORD della bozza (Rocket + Cerebro uniti per keyword), con la STESSA logica della pagina «Ricerca keyword / competitor» (KR.build). Il profilo del libro e' quello della
+    BOZZA (titolo, sottotitolo, descrizione, keyword KDP, categorie); `extra` = integrazione facoltativa. Sola lettura. None se la bozza non ha file di ricerca."""
+    plan = get_plan(ws, launch_id)
+    if not plan or not (plan.get("research") or {}).get("files"):
+        return None
+    cer = load_cerebro(ws, launch_id)
+    roc = load_research(ws, launch_id)
+    profile = KR.profile_from_plan(plan, extra)
+    res = KR.build(KR.agg_from_parsed(cer), roc, profile)
+    b = plan.get("book") or {}
+    res["profile_fields"] = [lbl for key, lbl in (("title", "titolo"), ("subtitle", "sottotitolo"), ("description", "descrizione"), ("kdp_keywords", "keyword KDP"), ("categories", "categorie"))
+                             if b.get(key)]
+    res["cerebro_files"] = [{"file": r["file_name"], "competitor": r["asin"], "keywords": len(r["rows"])} for r in cer]
+    return res
 
 
 def import_research(ws, launch_id: str, name: str, data: bytes) -> OpResult:
@@ -132,10 +232,15 @@ def import_research(ws, launch_id: str, name: str, data: bytes) -> OpResult:
             with open(d / fname, "xb") as fh:                # 'x': non sovrascrive mai
                 fh.write(content)
             written.append(d / fname)
-        enriched = launch_research.apply_enrichment(plan, rec)
-        entry = {"id": rid, "file_name": name, "stored_as": stored, "normalized": norm, "sha256": rec["sha256"], "format": rec["format"],
-                 "kind": rec["kind"], "rows": rec["rows"], "keywords": len(rec["keywords"]), "competitors": len(rec["competitors"]),
-                 "enriched_asins": enriched, "imported_at": launch._now()}
+        if rep.get("source") == KR.SOURCE_CEREBRO:             # Cerebro: nessun arricchimento dei competitor (sono keyword osservate, non schede prodotto)
+            entry = {"id": rid, "file_name": name, "stored_as": stored, "normalized": norm, "sha256": rec["sha256"], "format": "HELIUM10_CEREBRO", "source": KR.SOURCE_CEREBRO,
+                     "kind": rep["kind"], "rows": len(rec["rows"]), "keywords": len(rec["rows"]), "competitors": 0, "competitor_id": rec["asin"], "enriched_asins": [],
+                     "imported_at": launch._now()}
+        else:
+            enriched = launch_research.apply_enrichment(plan, rec)
+            entry = {"id": rid, "file_name": name, "stored_as": stored, "normalized": norm, "sha256": rec["sha256"], "format": rec["format"],
+                     "kind": rec["kind"], "rows": rec["rows"], "keywords": len(rec["keywords"]), "competitors": len(rec["competitors"]),
+                     "enriched_asins": enriched, "imported_at": launch._now()}
         plan.setdefault("research", {"files": []})["files"].append(entry)
         plan["updated_at"] = launch._now()
         path = launch.save_plan(launch_dir(ws), plan, overwrite=True)
@@ -183,7 +288,7 @@ BATCH_OK, BATCH_DUP, BATCH_ALREADY = "DRY_RUN_OK", "DUPLICATE_IN_BATCH", "ALREAD
 def _row(name, data, rep):
     """Riga di tabella di un file del lotto (dal report del dry run)."""
     return {"file_name": name, "format": rep.get("format"), "rows": rep.get("rows"), "keywords_found": rep.get("keywords_found", 0),
-            "asins_found": rep.get("asins_found", 0), "metrics": sorted((rep.get("metrics_present") or {}).keys()), "status": rep["status"],
+            "asins_found": rep.get("asins_found", 0), "metrics": sorted((rep.get("metrics_present") or {}).keys()), "status": rep["status"], "summary_text": rep.get("summary_text"),
             "error": "; ".join(rep.get("problems") or []) or None, "sha256": launch_research.sha256(data), "report": rep}
 
 
@@ -202,7 +307,7 @@ def research_batch_dry_run(ws, launch_id: str, files: list) -> OpResult:
             rep = {"status": BATCH_DUP, "ok": False, "file_name": name, "problems": [f"Identico al file {seen[sha]} dello stesso caricamento: verra' importato una sola volta"],
                    "format": launch_research.file_format(name) if str(name).lower().endswith((".csv", ".xlsx", ".xls")) else None}
         else:
-            rep = launch_research.dry_run_report(plan, name, data or b"")
+            rep = _dry_run_any(ws, plan, launch_id, name, data or b"")
             if rep["status"] == "SKIPPED_DUPLICATE":
                 rep["status"] = BATCH_ALREADY
             seen.setdefault(sha, name)
@@ -233,6 +338,9 @@ def import_research_batch(ws, launch_id: str, files: list) -> OpResult:
     for rec in load_research(ws, launch_id):
         if rec.get("sha256") in shas:
             kws |= {k["keyword"] for k in rec.get("keywords", [])}
+    for rec in load_cerebro(ws, launch_id):
+        if rec.get("sha256") in shas:
+            kws |= {CB.normalize_keyword(k["keyword"]) for k in rec.get("rows", [])}
     enriched = sorted({a for f in (plan.get("research") or {}).get("files", []) if f.get("sha256") in shas for a in f.get("enriched_asins", [])})
     cands = sorted({c["asin"] for row in imported for c in row["report"].get("competitor_candidates", []) if c["asin"] not in have})
     by = lambda s: sum(1 for r in rows if r["status"] == s)  # noqa: E731

@@ -250,7 +250,8 @@ class PageTests(unittest.TestCase):
         self.assertTrue(self.ops.import_research(self.ws, self.lid, "ANALYZED REVERSE ASIN LOOKUP - BOOK B0H8YTL55T x.csv", csv_bytes(PR_HEADER, rows)).ok)
         self.at = AppTest.from_file(str(PAGE), default_timeout=90).run()
         self.at.selectbox[0].set_value(self.lid).run()
-        [b for b in self.at.button if b.label == "GENERA PIANO KEYWORD"][0].click().run()
+        [c for c in self.at.checkbox if c.label.startswith("Vedi anche piano base")][0].check().run()                                         # con la ricerca importata il piano base e' il fallback dietro l'opzione esplicita
+        [b for b in self.at.button if b.label == "GENERA PIANO BASE DALLA BOZZA"][0].click().run()
         self.assertFalse(self.at.exception)
         self.saved = self.ops.get_plan(self.ws, self.lid)["keyword_plan"]["launch_strategy"]
 

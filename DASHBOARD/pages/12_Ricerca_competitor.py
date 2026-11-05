@@ -1,4 +1,4 @@
-"""Ricerca competitor: import di 1-5 CSV Helium 10 Cerebro (ASIN competitor), keyword comuni, gap rispetto alle campagne, suggerimenti Ads in FRASE e
+"""RICERCA KEYWORD / COMPETITOR (Publisher Rocket + Helium 10 Cerebro): import automatico di export Rocket e di 1-5 CSV Cerebro (un competitor per file), keyword comuni, gap rispetto alle campagne, suggerimenti Ads in FRASE e
 opportunità editoriali derivate. Dati ESTERNI/STIMATI. Scrive SOLO le tabelle competitor_* del DB locale: non tocca books.json, INPUT, i report Amazon Ads
 né le decisioni. Nessuna rete, nessuna Amazon."""
 import sys
@@ -14,13 +14,15 @@ import ui_labels as U  # noqa: E402
 from components import competitor_ui as CU  # noqa: E402
 from components import ops_ui  # noqa: E402
 from kdp_ads import competitor as C  # noqa: E402
+from kdp_ads import keyword_research as KR  # noqa: E402
 from ops import competitor_ops as ops  # noqa: E402
 from ops import workspace  # noqa: E402
 
 ws = workspace.current()
 S = st.session_state
 ops_ui.setup(st, U.COMP_PAGE_TITLE)
-st.markdown(CU.source_badge() + " &nbsp; **" + F.esc(U.COMP_SOURCE) + "**", unsafe_allow_html=True)
+st.markdown(CU.source_badge() + " &nbsp; **" + F.esc(U.COMP_PAGE_SOURCE) + "**", unsafe_allow_html=True)
+st.subheader(U.COMP_SUBTITLE)
 st.caption(U.COMP_INTRO)
 
 if "cr_pending_pick" in S:                         # la selezione si applica PRIMA di creare il widget (dopo un import)
@@ -41,26 +43,37 @@ default = f"Competitor Research — {book['title']} — {today}" if book else f"
 name = st.text_input("Nome della ricerca (facoltativo)", value="", placeholder=default, key=f"cr_new_name_{book_id}")
 st.caption("Senza libro: «ricerca nuova opportunità editoriale» (NEW_OPPORTUNITY). Con un libro: ricerca per quel libro (EXISTING_BOOK), che può comunque far emergere "
            "nuove opportunità editoriali derivate.")
-uploaded = list(st.file_uploader("File CSV Cerebro (da 1 a 5, uno per competitor; target 3-5)", type=["csv"], accept_multiple_files=True, key=f"cr_new_files_{S.get('cr_up', 0)}") or [])
+uploaded = list(st.file_uploader(U.COMP_UPLOAD, type=["csv", "xlsx", "xls"], accept_multiple_files=True, key=f"cr_new_files_{S.get('cr_up', 0)}") or [])
+st.caption(U.COMP_FORMATS_NOTE)
 manual = {}
 files = []
+n_cerebro = 0
+all_plans = []
 for f in uploaded:
     data = f.getvalue()
     files.append((f.name, data))
-    plan = ops.plan_files([(f.name, data)])[0]
+    plan = ops.plan_any([(f.name, data)])[0]
+    all_plans.append(plan)
     if plan["error"]:
-        st.error(f"{f.name}: {plan['error']}")
-    elif plan["needs_asin"]:
-        manual[f.name] = st.text_input(f"ASIN competitor per «{f.name}» (non ricavabile dal nome del file)", key=f"cr_asin_{f.name}")
+        st.error(plan["error"])
+    elif plan["needs_competitor"]:
+        n_cerebro += 1
+        manual[f.name] = st.text_input(f"Identificativo competitor per «{f.name}» (non ricavabile dal nome del file)", key=f"cr_asin_{f.name}")
     else:
-        p = plan["parsed"]
-        st.caption(f"{f.name} → ASIN {plan['asin']} ({'dal nome del file' if plan['asin_source'] == 'FILENAME' else 'manuale'}) · {len(p['rows'])} keyword · "
-                   f"{len(p['columns']) - len(p['unmapped'])} colonne riconosciute" + (" · " + "; ".join(p["warnings"]) if p["warnings"] else ""))
-if files and len(files) > 5:
-    st.error("Massimo 5 competitor per ricerca.")
-elif files and len(files) <= 2:
+        sm = plan["summary"]
+        n_cerebro += 1 if plan["cerebro"] else 0
+        st.caption(sm["text"] + (f" · da: {'nome del file' if plan['competitor_id_source'] == 'FILENAME' else 'manuale'}" if plan["cerebro"] else "")
+                   + (" · " + "; ".join(sm["warnings"]) if sm.get("warnings") else ""))
+ok_plans = [p for p in all_plans if not p["error"] or p["needs_competitor"]]
+if ok_plans:
+    prev = ops.preview_summary(ok_plans)
+    st.markdown(f"**{prev['cerebro_competitors']} competitor Cerebro** · {prev['unique_keywords']} keyword uniche · {prev['at_least_2']} presenti su almeno 2 competitor · "
+                f"{prev['at_least_3']} presenti su almeno 3 competitor" + (f" · {prev['rocket_files']} file Publisher Rocket" if prev["rocket_files"] else ""))
+if n_cerebro > 5:
+    st.error("Massimo 5 competitor Cerebro per ricerca.")
+elif 0 < n_cerebro <= 2:
     st.warning(U.COMP_LOW_RELIABILITY)
-go = st.button("IMPORTA RICERCA", key="cr_new_go", disabled=not files or len(files) > 5)
+go = st.button("IMPORTA RICERCA", key="cr_new_go", disabled=not files or n_cerebro > 5)
 if go is True:
     r = ops.import_research(ws, book_id, marketplace, name, files, manual, book_title=(book or {}).get("title"))
     flash = [("ok", f"Ricerca importata: {r.message}.")] if r.ok else []
@@ -68,6 +81,8 @@ if go is True:
     if r.ok and r.data and r.data.get("imported"):
         S["cr_flash"] = flash
         S["cr_pending_pick"] = r.data["research_id"]
+        if r.data.get("rocket_records"):
+            S[f"cr_rocket_{r.data['research_id']}"] = r.data["rocket_records"]            # Publisher Rocket: solo sessione (non salvato nel DB)
         S["cr_up"] = S.get("cr_up", 0) + 1                  # svuota il caricamento file: nessun doppio import involontario
         st.rerun()
     for kind, text in flash:
@@ -83,7 +98,7 @@ else:
     if S.get("cr_pick") not in plabels:
         S["cr_pick"] = next(iter(plabels))
     rid = st.selectbox("Ricerca", list(plabels), format_func=lambda v: plabels[v], key="cr_pick")
-    a = ops.analyze(ws, rid)
+    a = ops.analyze(ws, rid, S.get(f"cr_prof_{rid}"), S.get(f"cr_rocket_{rid}"))
     if a is None:
         st.error("Ricerca non leggibile.")
     else:
@@ -111,8 +126,49 @@ else:
                     st.rerun()
         tabs = st.tabs(U.COMP_TABS)
 
-        # ---- 1. PANORAMICA
+        # ---- 0. PIANO KEYWORD (Rocket + Cerebro uniti: una riga per keyword)
         with tabs[0]:
+            res = a["research"]
+            sm = res["summary"]
+            st.markdown("**PIANO KEYWORD DI LANCIO** — proposta MANUALE, PHRASE-first: nessuna campagna Amazon viene creata e nessuna decisione 7D/30D/65D/Lifetime cambia. "
+                        "Il Search Volume è un segnale, non la decisione: una keyword con volume basso ma presente su più competitor con rank forti può contare più di una generica molto cercata.")
+            st.markdown(f"**{sm['cerebro_competitors']} competitor Cerebro** · {sm['unique_keywords']} keyword uniche · {sm['at_least_2']} presenti su almeno 2 competitor · "
+                        f"{sm['at_least_3']} presenti su almeno 3 competitor" + (f" · {sm['rocket_files']} file Publisher Rocket ({sm['both_sources']} keyword in entrambe le fonti)" if sm["rocket_files"] else ""))
+            st.caption("Per numero di competitor: " + " · ".join(f"{c}/{sm['cerebro_competitors']}: {num}" for c, num in sm["by_competitor_count"].items())
+                       + " | Priorità: " + " · ".join(f"{k}: {v}" for k, v in sm["by_priority"].items()))
+            if not res["has_profile"]:
+                st.info("Pertinenza con il libro non valutata (nessun libro associato o profilo vuoto): le priorità si basano solo sui competitor. Compila il profilo qui sotto per attivarla.")
+            with st.expander("Profilo del libro per la pertinenza (titolo, sottotitolo, keyword KDP, categorie, descrizione)"):
+                with st.form(f"cr_prof_form_{rid}"):
+                    cur = S.get(f"cr_prof_{rid}") or {}
+                    sub_ = st.text_input("Sottotitolo", value=cur.get("subtitle") or "")
+                    kdp_ = st.text_input("Keyword KDP (separate da virgola)", value=cur.get("kdp_keywords") or "")
+                    cat_ = st.text_input("Categorie", value=cur.get("categories") or "")
+                    desc_ = st.text_area("Descrizione", value=cur.get("description") or "")
+                    ok_ = st.form_submit_button("APPLICA PROFILO")
+                if ok_ is True:
+                    S[f"cr_prof_{rid}"] = {"subtitle": sub_, "kdp_keywords": kdp_, "categories": cat_, "description": desc_}
+                    st.rerun()
+                st.caption("Il titolo viene dal libro associato. Il profilo non viene salvato: vale per questa sessione.")
+            f1, f2, f3, f4 = st.columns(4)
+            prios = f1.multiselect("Priorità", list(KR.PRIORITY_LABELS), default=[KR.P1, KR.P2, KR.P3], format_func=lambda p_: KR.PRIORITY_LABELS[p_], key=f"cr_kp1_{rid}")
+            mcomp = f2.number_input("Presenti in almeno X competitor", min_value=0, max_value=max(sm["cerebro_competitors"], 1), value=0, key=f"cr_kp2_{rid}")
+            badge = f3.selectbox("Segnale", ["Tutti", "ORGANIC TOP 10", "SPONSORED TOP 10", "MULTI-COMPETITOR"], key=f"cr_kp3_{rid}")
+            qtxt = f4.text_input("Testo keyword", key=f"cr_kp4_{rid}")
+            rows = [r for r in res["rows"] if r["priority"] in prios and r["competitor_count"] >= int(mcomp) and (badge == "Tutti" or badge in r["badges"])
+                    and (not qtxt.strip() or qtxt.strip().lower() in r["keyword_norm"])]
+            st.caption(f"{len(rows)} keyword su {len(res['rows'])} · mostrate le prime 500.")
+            st.dataframe(CU.research_rows(rows[:500]), use_container_width=True, hide_index=True)
+            st.markdown("**PIANO DI LANCIO (candidate P1/P2/P3)**")
+            if res["plan"]:
+                st.dataframe(CU.plan_rows(res["plan"]), use_container_width=True, hide_index=True)
+            else:
+                st.caption("Nessuna keyword candidata con le evidenze attuali.")
+            st.caption("PHRASE CORE = priorità P1 · PHRASE TEST = P2/P3 · CANDIDATA EXACT — EVIDENZA MOLTO FORTE (≥4 competitor, Organic Rank ≤5, Sponsored Rank ≤10, pertinenza alta, volume minimo) "
+                       "e comunque dopo il lancio PHRASE. Le keyword fuori intento, brand/IP o ASIN sono escluse ma restano visibili con il motivo.")
+
+        # ---- 1. PANORAMICA
+        with tabs[1]:
             st.markdown(f"**{ov['total']} competitor analizzati**")
             for cnt, num in ov["by_count"].items():
                 st.markdown(f"- {num} keyword presenti su {cnt}/{ov['total']}")
@@ -130,7 +186,7 @@ else:
             st.info(U.COMP_NO_DECISION)
 
         # ---- 2. KEYWORD COMUNI
-        with tabs[1]:
+        with tabs[2]:
             st.markdown("**KEYWORD COMUNI TRA COMPETITOR** — ordine: presenza su più competitor → rank organico → volume → title density / competing products.")
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             min_comp = c1.number_input("Presenti in almeno X competitor", min_value=1, max_value=max(ov["total"], 1), value=min(2, max(ov["total"], 1)), key=f"cr_f1_{rid}")
@@ -157,7 +213,7 @@ else:
                 st.caption("Le keyword brand/IP non vengono mai suggerite né usate per nuovi titoli: restano segnali di mercato.")
 
         # ---- 3. KEYWORD DI LANCIO (criterio operativo: almeno un competitor con Organic Rank o Sponsored Rank da 1 a 10)
-        with tabs[2]:
+        with tabs[3]:
             lc = ov["launch"]
             st.markdown("**KEYWORD DI LANCIO** — candidate prioritarie: almeno un competitor ha Organic Rank o Sponsored Rank da 1 a 10. "
                         "Ordine: categoria (la genericità la abbassa) → presenza su più competitor → miglior rank → rilevanza verso il libro → volume → title density / competing products.")
@@ -184,7 +240,7 @@ else:
                        f"{U.COMP_SOURCE}.")
 
         # ---- 4. KEYWORD GAP
-        with tabs[3]:
+        with tabs[4]:
             if not existing:
                 st.info(U.COMP_GAP_NA)
             else:
@@ -196,7 +252,7 @@ else:
                 st.dataframe(CU.gap_rows(shown), use_container_width=True, hide_index=True)
 
         # ---- 4. OPPORTUNITÀ ADS
-        with tabs[4]:
+        with tabs[5]:
             if not existing:
                 st.info(U.COMP_GAP_NA)
             else:
@@ -207,7 +263,7 @@ else:
                     CU.ads_card(st, s)
 
         # ---- 5. OPPORTUNITÀ EDITORIALI
-        with tabs[5]:
+        with tabs[6]:
             st.markdown("**OPPORTUNITÀ EDITORIALI DERIVATE** — cluster da approfondire, non raccomandazioni a pubblicare.")
             if existing:
                 st.caption(f"Ricerca associata a «{proj.get('book_title')}»: i cluster distinti dal libro origine sono NUOVE OPPORTUNITÀ DERIVATE.")
@@ -246,27 +302,31 @@ else:
                     st.dataframe(CU.common_rows(ed["unclustered"]), use_container_width=True, hide_index=True)
 
         # ---- 6. COMPETITOR
-        with tabs[6]:
+        with tabs[7]:
             st.dataframe(CU.competitor_rows(a["sources"]), use_container_width=True, hide_index=True)
             st.caption("Un file sostituito resta nello storico (stato «sostituito») e non entra più nelle analisi.")
             st.markdown("**Aggiungi o sostituisci un competitor**")
-            more = list(st.file_uploader("File CSV Cerebro", type=["csv"], accept_multiple_files=True, key=f"cr_more_{rid}") or [])
+            more = list(st.file_uploader(U.COMP_UPLOAD, type=["csv", "xlsx", "xls"], accept_multiple_files=True, key=f"cr_more_{rid}") or [])
             more_files, more_manual = [], {}
             for f in more:
                 more_files.append((f.name, f.getvalue()))
-                pl = ops.plan_files([(f.name, f.getvalue())])[0]
+                pl = ops.plan_any([(f.name, f.getvalue())])[0]
                 if pl["error"]:
-                    st.error(f"{f.name}: {pl['error']}")
-                elif pl["needs_asin"]:
+                    st.error(pl["error"])
+                else:
+                    st.caption(pl["summary"]["text"])
+                if not pl["error"] and pl["needs_competitor"]:
                     more_manual[f.name] = st.text_input(f"ASIN competitor per «{f.name}»", key=f"cr_masin_{rid}_{f.name}")
             replace = st.checkbox("Sostituisci l'ASIN se già presente (il vecchio file resta nello storico)", key=f"cr_rep_{rid}")
             if st.button("IMPORTA NEL PROGETTO", key=f"cr_add_{rid}", disabled=not more_files) is True:
                 res = ops.import_research(ws, proj["book_id"], proj["marketplace"], None, more_files, more_manual, replace=bool(replace), research_id=rid)
                 S["cr_flash"] = ([("ok", res.message)] if res.ok else []) + [("err", e) for e in res.errors] + [("warn", w) for w in ((res.data or {}).get("warnings") or [])]
                 S["cr_pending_pick"] = rid
+                if (res.data or {}).get("rocket_records"):
+                    S[f"cr_rocket_{rid}"] = (S.get(f"cr_rocket_{rid}") or []) + res.data["rocket_records"]
                 st.rerun()
 
         # ---- 7. DATI GREZZI
-        with tabs[7]:
+        with tabs[8]:
             st.caption(f"{U.COMP_SOURCE} · valori originali del CSV insieme a quelli normalizzati. Non sono dati Amazon Ads.")
             st.dataframe(CU.raw_rows(a["raw"]), use_container_width=True, hide_index=True)

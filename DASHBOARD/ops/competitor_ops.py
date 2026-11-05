@@ -3,8 +3,10 @@ Non toccano books.json, INPUT, ne' le tabelle dei report Amazon Ads. Nessuna ret
 import sqlite3
 
 from kdp_ads import cerebro, registry
+from kdp_ads import cerebro as CB
 from kdp_ads import competitor as C
 from kdp_ads import competitor_store as S
+from kdp_ads import keyword_research as KR
 from kdp_ads.db import connect
 
 from . import OpResult
@@ -70,7 +72,7 @@ def negative_candidates(ws, book_id, marketplace) -> list:
         return []
 
 
-def analyze(ws, research_id) -> dict | None:
+def analyze(ws, research_id, profile_extra: dict | None = None, rocket_records: list | None = None) -> dict | None:
     conn = read_conn(ws)
     if conn is None or not S.has_schema(conn):
         return None
@@ -87,6 +89,12 @@ def analyze(ws, research_id) -> dict | None:
         a = S.analyze(conn, research_id, rules, own)
         a["saved"] = {o["cluster_key"]: o for o in S.list_opportunities(conn, research_id)}
         a["raw"] = S.raw_observations(conn, research_id)
+        # RICERCA KEYWORD / COMPETITOR: evidenze Cerebro (salvate nel progetto) + Publisher Rocket (SOLO sessione: nessuna tabella nuova) unite per keyword, con la STESSA logica
+        # della pagina «Lancio nuovo libro» (KR.build). Pipeline distinta dalle decisioni Amazon Ads: nessun dato di campagna entra qui.
+        extra = {k: v for k, v in (profile_extra or {}).items() if v}
+        profile = KR.build_profile(proj.get("book_title") if proj["mode"] == "EXISTING_BOOK" else None, **extra)
+        a["rocket"] = list(rocket_records or [])
+        a["research"] = KR.build(a["agg"], a["rocket"], profile, rules)
         return a
     finally:
         conn.close()
@@ -106,6 +114,22 @@ def plan_files(files: list, manual_asins: dict | None = None) -> list:
     return out
 
 
+def plan_any(files: list, manual_asins: dict | None = None) -> list:
+    """files = [(nome, bytes)]. Riconoscimento AUTOMATICO del formato (Cerebro / Publisher Rocket / sconosciuto) per ogni file: KR.parse_any + riga di riepilogo. Nessuna scrittura."""
+    out = []
+    for name, data in files:
+        p = KR.parse_any(name, data, (manual_asins or {}).get(name) or None)
+        out.append({**p, "summary": KR.file_summary(p)})
+    return out
+
+
+def preview_summary(plans: list) -> dict:
+    """Riepilogo dei file appena caricati (PRIMA dell'import): n. competitor Cerebro, keyword uniche, presenti su almeno 2 / 3 competitor. Nessuna scrittura."""
+    cer = [{"asin": p["competitor_id"] or p["name"], "rows": CB.merge_duplicate_rows(p["cerebro"]["rows"])} for p in plans if p["cerebro"]]
+    agg = C.aggregate(cer) if cer else None
+    return KR.unify(agg, [p["rocket"] for p in plans if p["rocket"]])["summary"]
+
+
 def _refresh_opportunities(conn, research_id, rules=None):
     """Ricalcola e salva i cluster editoriali del progetto (stato DA_APPROFONDIRE; le scelte dell'utente non vengono sovrascritte)."""
     a = S.analyze(conn, research_id, rules)
@@ -115,11 +139,18 @@ def _refresh_opportunities(conn, research_id, rules=None):
 def import_research(ws, book_id, marketplace, name, files: list, manual_asins=None, replace=False, research_id=None, book_title=None) -> OpResult:
     """Crea un progetto (o aggiunge file a `research_id`) e importa 1-5 file Cerebro. Un file non valido NON blocca gli altri; ogni file e' una transazione.
     Nessun overwrite silenzioso: stesso file = nessuna modifica; stesso ASIN = richiede replace=True."""
-    plans = plan_files(files, manual_asins)
+    anyplans = plan_any(files, manual_asins)
+    plans = [{"name": p["name"], "parsed": p["cerebro"], "error": p["error"], "asin": p["competitor_id"], "needs_asin": p["needs_competitor"]} for p in anyplans if p["rocket"] is None]
+    rockets = [p for p in anyplans if p["rocket"] is not None]
     ok = [p for p in plans if p["parsed"] is not None]
-    errors = [f"{p['name']}: {p['error']}" for p in plans if p["error"]]
-    if not ok:
+    errors = [p["error"] if str(p["error"]).startswith(str(p["name"])) else f"{p['name']}: {p['error']}" for p in plans if p["error"]]
+    rocket_records = [rp["rocket"] for rp in rockets]               # Publisher Rocket: letto ma NON salvato nel DB (valido per la sessione; salvataggio persistente = bozza di «Lancio nuovo libro»)
+    if not ok and not rockets:
         return OpResult(False, errors or ["Nessun file da importare"])
+    if not ok and research_id is None:
+        return OpResult(False, errors + ["Una ricerca nuova richiede almeno un file Helium 10 Cerebro. I file Publisher Rocket si salvano nella bozza di «Lancio nuovo libro»."])
+    if not ok:
+        return OpResult(True, errors, f"{len(rockets)} file Publisher Rocket letti (solo per questa sessione)", {"research_id": research_id, "results": [], "warnings": [], "imported": 0, "rocket_records": rocket_records})
     if research_id is None and len(ok) > S.MAX_COMPETITORS:
         return OpResult(False, [f"Un progetto può avere al massimo {S.MAX_COMPETITORS} competitor"])
     backup_db(ws, "competitor_research")
@@ -146,7 +177,8 @@ def import_research(ws, book_id, marketplace, name, files: list, manual_asins=No
         if S.list_sources(conn, rid, active_only=True):
             _refresh_opportunities(conn, rid, rules)
         warn = [r["message"] for r in results if r["status"] in ("DUPLICATE_FILE", "ASIN_EXISTS")]
-        return OpResult(bool(done) or (bool(results) and not errors), errors, f"{len(done)} file importati", {"research_id": rid, "results": results, "warnings": warn, "imported": len(done)})
+        return OpResult(bool(done) or (bool(results) and not errors), errors, f"{len(done)} file importati", {"research_id": rid, "results": results, "warnings": warn, "imported": len(done),
+                                                                                                           "rocket_records": rocket_records})
     finally:
         conn.close()
 

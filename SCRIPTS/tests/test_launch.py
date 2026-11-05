@@ -326,7 +326,7 @@ class PageTests(unittest.TestCase):
             txt = str(st.mock_calls)
             for needle in ("COMPETITOR DI RIFERIMENTO", "STRUTTURA CAMPAGNE CONSIGLIATA", "Valuta campagna COMPETITOR", "Fornito dall'utente", "EVIDENZA DELLE KEYWORD", "dati non disponibili"):
                 self.assertIn(needle, txt)
-            self.assertEqual([c.args[0] for c in st.method_calls if c[0] == "button"], ["GENERA PIANO KEYWORD"])      # unico pulsante: locale
+            self.assertEqual([c.args[0] for c in st.method_calls if c[0] == "button"], ["GENERA PIANO BASE DALLA BOZZA"])      # unico pulsante: locale
 
     def test_page_shows_validation_errors_without_saving(self):
         with tempfile.TemporaryDirectory() as tmp:

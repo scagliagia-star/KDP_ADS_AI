@@ -20,6 +20,47 @@ def common_rows(keywords) -> list:
              "Brand/IP": "SÌ" if k["brand_or_ip"] else "no", "ASIN presenti": ", ".join(k["asins"])} for k in keywords]
 
 
+def _bid(r) -> str:
+    if r.get("suggested_bid") is None and r.get("bid_min") is None and r.get("bid_max") is None:
+        return "n/d"
+    return f"{F.money(r.get('suggested_bid'))} (min {F.money(r.get('bid_min'))} · max {F.money(r.get('bid_max'))})"
+
+
+def research_rows(rows) -> list:
+    """RICERCA KEYWORD / COMPETITOR: una riga per keyword (Rocket + Cerebro unite). Tutte le colonne sono testo: «n/d» = dato mancante, «0» = zero reale."""
+    out = []
+    for r in rows:
+        ro = r.get("rocket") or {}
+        out.append({"Keyword": r["keyword"], "Priorità": r["priority_label"], "Fonti": r["source_label"], "Competitor presenti": r["competitor_share"] if r["competitor_total"] else "n/d",
+                    "Search Volume Cerebro": n(r["cerebro_search_volume"]), "Search Volume Rocket": n(r["rocket_search_volume"]) if r["rocket_search_volume"] is not None else (ro.get("search_volume_text") or "n/d"),
+                    "Miglior Organic Rank": n(r["best_organic_rank"]), "Organic Rank mediano": n(r["median_organic_rank"], 1), "Miglior Sponsored Rank": n(r["best_sponsored_rank"]),
+                    "Presenza sponsored": f"{r['sponsored_competitor_count']}/{r['competitor_total']}" if r["competitor_total"] else "n/d", "Cerebro IQ": n(r["cerebro_iq"]),
+                    "Keyword Sales": n(r["keyword_sales"]), "Competing Products": n(r["competing_products"]), "Title Density": n(r["title_density"], 1),
+                    "Offerta H10 suggerita": _bid(r), "Competition Rocket": n(ro.get("competition"), 1) if ro.get("competition") is not None else "n/d",
+                    "Badge": " · ".join(r["badges"]) or "—", "Tipo di lancio": r["launch_type"] or "—", "Punteggio": n(r["score"], 1), "Motivo": r["reason"]})
+    return out
+
+
+def launch_research_rows(rows) -> list:
+    """Pagina «Lancio nuovo libro»: colonne operative per keyword (stessi dati e stessa priorita' della pagina «Ricerca keyword / competitor»). Tutto testo: «n/d» = mancante, «0» = zero reale."""
+    out = []
+    for r in rows:
+        ro = r.get("rocket") or {}
+        rk = ", ".join(f"{k}: {v}" for k, v in (("volume", r.get("rocket_search_volume") if r.get("rocket_search_volume") is not None else ro.get("search_volume_text")),
+                                                ("competition", ro.get("competition")), ("competitor", ro.get("title_count"))) if v is not None) or "n/d"
+        out.append({"Keyword": r["keyword"], "Fonti": r["source_label"], "Competitor presenti": r["competitor_share"] if r["competitor_total"] else "n/d",
+                    "Search Volume Cerebro": n(r["cerebro_search_volume"]), "Dati Publisher Rocket": rk, "Miglior Organic Rank": n(r["best_organic_rank"]),
+                    "Miglior Sponsored Rank": n(r["best_sponsored_rank"]), "Cerebro IQ": n(r["cerebro_iq"]), "Offerta H10 suggerita": _bid(r), "Priorità": r["priority_label"],
+                    "Segnali": " · ".join(r["badges"]) or "—", "Tipo di lancio": r["launch_type"] or "—", "Motivo": r["reason"]})
+    return out
+
+
+def plan_rows(plan) -> list:
+    return [{"Keyword": i["keyword"], "Priorità": i["priority"], "Fonte": i["source"], "Competitor": f"{i['competitor_count']}/{i['competitor_total']}" if i["competitor_total"] else "n/d",
+             "Search Volume": n(i["search_volume"]), "Miglior Organic Rank": n(i["best_organic_rank"]), "Miglior Sponsored Rank": n(i["best_sponsored_rank"]),
+             "Offerta suggerita": _bid(i), "Tipo di lancio": i["launch_type"], "Segnali": " · ".join(i["badges"]) or "—", "Motivo": i["reason"]} for i in plan]
+
+
 def gap_rows(gap) -> list:
     out = []
     for r in gap:
@@ -130,7 +171,7 @@ def growth_section(st, section, ops_page=None):
             try:
                 st.page_link(ops_page, label="Apri la ricerca completa")
             except Exception:
-                st.caption("Ricerca completa: pagina «Ricerca competitor» nel menu.")
+                st.caption("Ricerca completa: pagina «Ricerca keyword / competitor» nel menu.")
         if not p["suggestions"]:
             st.caption("Nessuna keyword competitor da testare in FRASE.")
         for s in p["suggestions"]:

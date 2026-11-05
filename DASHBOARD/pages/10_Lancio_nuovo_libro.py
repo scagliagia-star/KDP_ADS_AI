@@ -9,7 +9,9 @@ import streamlit as st  # noqa: E402
 
 import formatting as F  # noqa: E402
 import ui_labels as U  # noqa: E402
+from components import competitor_ui as CU  # noqa: E402
 from components import ops_ui  # noqa: E402
+from kdp_ads import keyword_research as KR  # noqa: E402
 from kdp_ads import launch, launch_keywords, launch_research  # noqa: E402
 from ops import launch_ops, workspace  # noqa: E402
 
@@ -22,7 +24,7 @@ st.caption(U.LAUNCH_INTRO)
 # ---------------------------------------------------------------- scelta della bozza (la selezione vive in st.session_state)
 # kb_launch_pick = valore del selectbox (launch_id o None per "Nuova bozza"); la sua chiave di stato NON si puo' modificare dopo che il widget e'
 # stato creato in questa esecuzione: dopo un salvataggio si scrive kb_pending_pick, si fa st.rerun() e qui, PRIMA del widget, lo si applica.
-# current_launch_id / selected_launch_id = bozza corrente: la usano "SALVA BOZZA" (aggiorna) e "GENERA PIANO KEYWORD" (stesso file, mai nuove bozze).
+# current_launch_id / selected_launch_id = bozza corrente: la usano "SALVA BOZZA" (aggiorna) e "GENERA PIANO BASE DALLA BOZZA" (stesso file, mai nuove bozze).
 plans = launch_ops.list_plans(ws)
 NEW = "Nuova bozza"
 titles = {p["launch_id"]: f"{p['title'] or '(bozza non leggibile)'} · {p['marketplace'] or F.ND} · {p['launch_id']}" for p in plans}
@@ -157,6 +159,7 @@ def show_dry_run(rep):
 if plan:
     st.divider()
     st.header(U.LAUNCH_RESEARCH_SECTION)
+    st.subheader(U.LAUNCH_RESEARCH_SUBTITLE)
     st.caption(U.LAUNCH_RESEARCH_INTRO)
     cur = S["current_launch_id"]
     n_up = S.get("kb_res_n", 0)
@@ -172,6 +175,8 @@ if plan:
         batch = batch if (batch and batch["key"] == key) else None
         n_valid = sum(1 for r in batch["rows"] if r["status"] == "DRY_RUN_OK") if batch else 0
         if batch:
+            for r in batch["rows"]:                                                                  # ✓ Helium 10 Cerebro · Competitor: B0… · N keyword
+                st.caption(r.get("summary_text") or f"{r['file_name']}: {U.LAUNCH_RESEARCH_BATCH_STATUS.get(r['status'], r['status'])}" + (f" — {r['error']}" if r["error"] else ""))
             st.dataframe([{"File": r["file_name"], "Formato": r["format"] or F.ND, "Righe": r["rows"] if r["rows"] is not None else F.ND,
                            "Keyword trovate": r["keywords_found"], "ASIN trovati": r["asins_found"],
                            "Metriche riconosciute": ", ".join(U.label_research_field(m) for m in r["metrics"]) or F.ND,
@@ -228,10 +233,50 @@ if plan:
             st.success(f"{U.LAUNCH_RESEARCH_ENRICHED}: {e['asin']}" + (f" ({e['title']})" if e.get("title") else ""))
         for e in ov["candidates"]:
             st.warning(f"{U.LAUNCH_RESEARCH_CANDIDATE}: {e['asin']}" + (f" ({e['title']})" if e.get("title") else "") + f" — {U.LAUNCH_RESEARCH_CANDIDATE_NOTE}")
+        # ---- ANALISI KEYWORD (Rocket + Cerebro): stessa logica della pagina «Ricerca keyword / competitor» (keyword_research.build), profilo = BOZZA
+        st.subheader(U.LAUNCH_ANALYSIS_SECTION)
+        st.caption(U.LAUNCH_ANALYSIS_NOTE)
+        extra = st.text_area("Termini aggiuntivi per la pertinenza (facoltativo)", value=S.get(f"kb_extra_{suffix}", ""), height=70, key=f"kb_extra_in_{suffix}",
+                             help="Integrazione facoltativa: il profilo è già costruito dai campi della bozza.")
+        S[f"kb_extra_{suffix}"] = extra
+        an = launch_ops.research_analysis(ws, cur, extra or None)
+        if an:
+            sm = an["summary"]
+            st.markdown(f"**{sm['cerebro_competitors']} competitor Cerebro** · {sm['unique_keywords']} keyword uniche · {sm['at_least_2']} presenti su almeno 2 competitor · "
+                        f"{sm['at_least_3']} presenti su almeno 3 competitor" + (f" · {sm['rocket_files']} file Publisher Rocket ({sm['both_sources']} keyword in entrambe le fonti)" if sm["rocket_files"] else ""))
+            if sm["by_competitor_count"]:
+                st.caption("Per numero di competitor: " + " · ".join(f"{c}/{sm['cerebro_competitors']}: {num}" for c, num in sm["by_competitor_count"].items()))
+            st.caption("Profilo del libro usato (dalla bozza): " + (", ".join(an["profile_fields"]) or "nessun campo") + f" · {an['top10_count']} keyword con Organic/Sponsored Rank 1-10 di un competitor")
+            groups = dict(KR.PRIORITY_GROUPS)
+            labels = {"P1": "P1 CORE", "P2": "P2 STRONG", "P3": "P3 TEST", "OUT": "FUORI INTENTO / NON PRIORITARIE"}
+            tabs = st.tabs([f"{labels[g]} ({sum(1 for r in an['rows'] if r['priority'] in groups[g])})" for g in groups])
+            for tab, g in zip(tabs, groups):
+                with tab:
+                    items = [r for r in an["rows"] if r["priority"] in groups[g]]
+                    if not items:
+                        st.caption("Nessuna keyword in questo gruppo.")
+                        continue
+                    st.dataframe(CU.launch_research_rows(items[:300]), use_container_width=True, hide_index=True)
+                    if len(items) > 300:
+                        st.caption(f"Mostrate le prime 300 su {len(items)}.")
+            st.markdown("**PIANO PHRASE-first (proposta manuale)**")
+            st.dataframe(CU.plan_rows(an["plan"]), use_container_width=True, hide_index=True)
+            st.caption("PHRASE CORE = P1 · PHRASE TEST = P2/P3 · CANDIDATA EXACT — EVIDENZA MOLTO FORTE = keyword da considerare eventualmente anche in Exact, mai «crea subito Exact»: il lancio resta PHRASE-first. Nessuna campagna viene creata su Amazon: il piano non viene salvato "
+                       "nella bozza (resta una vista calcolata dai file importati). Analisi approfondita: pagina «Ricerca keyword / competitor».")
 
 
+# PIANO KEYWORD: se la bozza ha file di ricerca (Cerebro e/o Rocket) il piano PRINCIPALE e' quello «BASATO SU DATI COMPETITOR» (analisi qui sopra). Il vecchio piano ricavato solo dai testi
+# della bozza resta come FALLBACK: senza ricerca e' l'unico piano; con la ricerca sta dietro un'opzione esplicita e non e' presentato come alternativa equivalente.
+has_research = bool(((plan or {}).get("research") or {}).get("files"))
+show_base = False
 if plan:
     st.divider()
+    if has_research:
+        st.info(U.LAUNCH_PRIMARY_PLAN_NOTE)
+        show_base = st.checkbox(U.LAUNCH_BASE_SHOW, key=f"kb_show_base_{suffix}")
+    else:
+        show_base = True
+if show_base:
     st.caption(U.LAUNCH_KW_INTRO)
     if st.button(U.LAUNCH_KW_BUTTON, key=f"btn_kwplan_{suffix}"):
         r = launch_ops.generate_keyword_plan(ws, S["current_launch_id"])        # la bozza corrente: stesso file, nessuna bozza nuova
@@ -261,7 +306,7 @@ if plan:
         st.header(U.LAUNCH_STRATEGY_SECTION)
         ls = kp.get("launch_strategy")
         if not ls:
-            st.info("Questo piano è stato generato prima della strategia di lancio: premi GENERA PIANO KEYWORD per aggiornarlo.")
+            st.info("Questo piano è stato generato prima della strategia di lancio: premi GENERA PIANO BASE DALLA BOZZA per aggiornarlo.")
         else:
             st.caption(U.LAUNCH_STRATEGY_INTRO)
             st.table({"Preset": ls["preset"], "Campagna iniziale consigliata": " + ".join(ls["campaigns_at_launch"]),

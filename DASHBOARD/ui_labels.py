@@ -23,7 +23,7 @@ NAV_PAGES = [
     ("pages/9_Opportunita_Search_Term.py", "Opportunità Search Term"),
     ("pages/11_Suggerimenti_di_crescita.py", "Suggerimenti di crescita"),
     ("pages/10_Lancio_nuovo_libro.py", "Lancio nuovo libro"),
-    ("pages/12_Ricerca_competitor.py", "Ricerca competitor"),
+    ("pages/12_Ricerca_competitor.py", "Ricerca keyword / competitor"),
     ("pages/7_Gestione_libri.py", "Gestione libri"),
     ("pages/13_Report_globali_Amazon_Ads.py", "Report globali Amazon Ads"),
     ("pages/14_Campagne_da_associare.py", "Campagne da associare"),
@@ -178,9 +178,12 @@ LAUNCH_COMPETITOR_NOTE = ("Competitor fornito dall'utente (di solito scelto con 
                           "l'esistenza su Amazon e l'adeguatezza come competitor non sono verificate.")
 LAUNCH_SOURCE_LABELS = {"USER_COMPETITOR_ASIN": "Fornito dall'utente"}
 LAUNCH_STRUCTURE_SECTION = "STRUTTURA CAMPAGNE CONSIGLIATA"
-LAUNCH_KW_BUTTON = "GENERA PIANO KEYWORD"
-LAUNCH_KW_INTRO = ("Piano keyword Ads iniziale ricavato SOLO dai testi della bozza (titolo, sottotitolo, descrizione, keyword KDP, categorie). "
-                   "Non usa volumi di ricerca né dati esterni e non crea nulla su Amazon: sono proposte da valutare a mano. Il piano viene salvato nella bozza.")
+LAUNCH_KW_BUTTON = "GENERA PIANO BASE DALLA BOZZA"
+LAUNCH_BASE_SHOW = "Vedi anche piano base dalla bozza (fallback)"
+LAUNCH_PRIMARY_PLAN_NOTE = ("Il piano keyword PRINCIPALE è quello basato sui dati competitor (analisi qui sopra, P1/P2/P3 e piano PHRASE-first). Il piano base ricavato solo dai testi della bozza "
+                            "è un fallback e resta disponibile qui sotto.")
+LAUNCH_KW_INTRO = ("Piano iniziale ricavato solo da titolo, sottotitolo, descrizione, keyword KDP e categorie. Non utilizza dati competitor o volumi di ricerca. "
+                   "Non crea nulla su Amazon: sono proposte da valutare a mano. Il piano viene salvato nella bozza.")
 LAUNCH_PROFILE_SECTION = "PROFILO DEL LIBRO"
 LAUNCH_STRATEGY_SECTION = "STRATEGIA DI LANCIO"
 LAUNCH_STRATEGY_INTRO = ("Preset PHRASE_FIRST_AUTO: una lista PHRASE molto selezionata più una campagna AUTO in parallelo. Nessuna campagna EXACT iniziale: "
@@ -208,11 +211,15 @@ LAUNCH_CONFIDENCE_LABELS = {"HIGH": "Alta", "MEDIUM": "Media", "LOW": "Bassa"}
 LAUNCH_KW_SOURCE_LABELS = {"title": "titolo", "subtitle": "sottotitolo", "kdp_keyword": "keyword KDP", "category": "categoria",
                            "description": "descrizione", "competitor": "competitor", "publisher_rocket": "Publisher Rocket"}
 LAUNCH_MATCH_LABELS = {"EXACT": "EXACT", "PHRASE": "PHRASE", "DISCOVERY": "DISCOVERY", "REJECT": "Scartata"}
-LAUNCH_RESEARCH_SECTION = "RICERCA COMPETITOR / PUBLISHER ROCKET"
-LAUNCH_RESEARCH_INTRO = ("Carica qui i file esportati da Publisher Rocket (CSV, XLSX o XLS). Il file resta sul tuo computer: viene letto in locale, nessuna rete, "
+LAUNCH_RESEARCH_SECTION = "RICERCA KEYWORD PER IL LANCIO"
+LAUNCH_RESEARCH_SUBTITLE = "Publisher Rocket + Helium 10 Cerebro"
+LAUNCH_RESEARCH_INTRO = ("Carica qui i file esportati da Publisher Rocket (CSV, XLSX o XLS) e/o da Helium 10 Cerebro (CSV, uno per competitor, fino a 5): il formato è riconosciuto automaticamente. Un export XLSX di Cerebro viene riconosciuto ma al momento non è importabile: esportalo in CSV. Il file resta sul tuo computer: viene letto in locale, nessuna rete, "
                          "nessuna modifica su Amazon, a books.json, al database Ads o alla cartella INPUT. Prima viene sempre fatto un dry run; solo dopo puoi "
                          "importarlo nella bozza (cartella LAUNCH/<bozza>/research/). Le colonne vengono riconosciute per nome: non serve un formato fisso.")
-LAUNCH_RESEARCH_UPLOAD = "Carica file Publisher Rocket (anche più file insieme)"
+LAUNCH_RESEARCH_UPLOAD = "Carica file Publisher Rocket (CSV/XLSX/XLS) o Helium 10 Cerebro (CSV), anche più file insieme"
+LAUNCH_ANALYSIS_SECTION = "PIANO KEYWORD BASATO SU DATI COMPETITOR (Rocket + Cerebro)"
+LAUNCH_ANALYSIS_NOTE = ("Proposta MANUALE, PHRASE-first: nessuna campagna Amazon viene creata. Usa titolo, sottotitolo, descrizione, keyword KDP e categorie della bozza per la pertinenza. "
+                        "Organic o Sponsored Rank 1-10 di un competitor pesano molto, ma la keyword deve restare pertinente al libro: il Search Volume è solo un segnale, non la decisione.")
 LAUNCH_RESEARCH_DRY = "ANALIZZA TUTTI / DRY RUN"
 LAUNCH_RESEARCH_IMPORT = "IMPORTA FILE VALIDI NELLA BOZZA"
 LAUNCH_RESEARCH_BATCH_STATUS = {"DRY_RUN_OK": "VALIDO", "DUPLICATE_IN_BATCH": "DUPLICATO", "ALREADY_IMPORTED": "GIÀ IMPORTATO",
@@ -595,17 +602,22 @@ def display_value(column, v):
 
 
 # ------------------------------------------------------------------ Ricerca competitor (Helium 10 Cerebro). Dati ESTERNI/STIMATI: mai mischiati ai dati Amazon Ads reali.
-COMP_PAGE_TITLE = "Ricerca competitor"
+COMP_PAGE_TITLE = "RICERCA KEYWORD / COMPETITOR"
+COMP_SUBTITLE = "Publisher Rocket + Helium 10 Cerebro"
 COMP_SOURCE = "Fonte esterna: Helium 10 Cerebro"
+COMP_PAGE_SOURCE = "Fonte esterna: Publisher Rocket / Helium 10 Cerebro"
 COMP_BADGE = "HELIUM 10 / FONTE ESTERNA"
-COMP_INTRO = ("Importa da 3 a 5 file CSV Helium 10 Cerebro di altrettanti ASIN competitor. I dati sono stime esterne: non sono ordini, clic, ACOS o vendite del tuo account "
-              "Amazon Ads e non diventano mai Exact, negative, cambi di offerta o pause. Producono solo suggerimenti di ricerca e di test (TESTA IN FRASE) e cluster editoriali "
-              "DA APPROFONDIRE. Nessuna decisione automatica.")
+COMP_INTRO = ("Carica uno o più export Publisher Rocket o Helium 10 Cerebro. L'app riconosce automaticamente il formato e combina le evidenze senza modificare Amazon Ads. "
+              "I dati sono stime esterne: non sono ordini, clic, ACOS o vendite del tuo account Amazon Ads, non entrano nelle decisioni 7D/30D/65D/Lifetime delle campagne esistenti "
+              "e non diventano mai Exact, negative, cambi di offerta o pause. Producono solo proposte manuali di ricerca e di lancio (PHRASE-first) e cluster editoriali DA APPROFONDIRE.")
+COMP_FORMATS_NOTE = ("Formati: Helium 10 Cerebro = CSV supportato (un export XLSX Cerebro viene riconosciuto ma al momento non è importabile: esportalo in CSV). "
+                     "Publisher Rocket = CSV/XLSX/XLS; in questa pagina vale solo per la sessione: per salvarlo usa la bozza di «Lancio nuovo libro».")
+COMP_UPLOAD = "File Publisher Rocket o Helium 10 Cerebro (CSV/XLSX; fino a 5 file Cerebro, uno per competitor)"
 COMP_NO_BOOK = "Nessun libro — ricerca nuova opportunità editoriale"
 COMP_ASSOCIATE = "Associa questa ricerca a un libro"
 COMP_LOW_RELIABILITY = "Con 1-2 competitor l'analisi è consentita ma l'affidabilità è BASSA: i risultati vanno letti come indicazioni deboli."
 COMP_NONE = "Nessuna ricerca competitor importata."
-COMP_TABS = ["PANORAMICA", "KEYWORD COMUNI", "KEYWORD DI LANCIO", "KEYWORD GAP", "OPPORTUNITÀ ADS", "OPPORTUNITÀ EDITORIALI", "COMPETITOR", "DATI GREZZI"]
+COMP_TABS = ["PIANO KEYWORD", "PANORAMICA", "KEYWORD COMUNI", "KEYWORD DI LANCIO", "KEYWORD GAP", "OPPORTUNITÀ ADS", "OPPORTUNITÀ EDITORIALI", "COMPETITOR", "DATI GREZZI"]
 COMP_GAP_NA = "Il gap rispetto alle campagne si applica solo alle ricerche associate a un libro esistente."
 COMP_NO_DECISION = "Nessuna decisione editoriale automatica: i cluster restano DA APPROFONDIRE."
 COMP_GROW_SECTION = "DA RICERCA COMPETITOR"

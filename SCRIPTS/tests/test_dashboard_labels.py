@@ -266,7 +266,7 @@ class RenderTests(td.DashBase):
         pages = [(a[0], k) for name, a, k in log if name == "st.Page"]
         self.assertEqual(pages[0], ("panoramica.py", {"title": "Panoramica", "default": True}))
         self.assertEqual([t["title"] for _, t in pages], ["Panoramica", "Tutte le decisioni", "Target in pausa", "Campagne",
-                                                          "Erogazione", "Confronto tra campagne", "Opportunità Search Term", "Suggerimenti di crescita", "Lancio nuovo libro", "Ricerca competitor", "Gestione libri", "Report globali Amazon Ads", "Campagne da associare", "Importa report"])
+                                                          "Erogazione", "Confronto tra campagne", "Opportunità Search Term", "Suggerimenti di crescita", "Lancio nuovo libro", "Ricerca keyword / competitor", "Gestione libri", "Report globali Amazon Ads", "Campagne da associare", "Importa report"])
         self.assertEqual(sum(1 for _, t in pages if t["default"]), 1)
         for path, _ in pages:                                                        # ogni voce punta a un file esistente
             self.assertTrue((ROOT / "DASHBOARD" / path).is_file(), path)

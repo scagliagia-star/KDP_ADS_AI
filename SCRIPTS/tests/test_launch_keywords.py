@@ -411,7 +411,7 @@ class StorageAndPageTests(unittest.TestCase):
         import test_launch as TL
         lid = self.saved(competitors=[{"asin": ASIN_A}])
         page = TL.PageTests()
-        st = page.render(self.root, {"Bozza di lancio": lid, "__button__": True})              # clic su GENERA PIANO KEYWORD
+        st = page.render(self.root, {"Bozza di lancio": lid, "__button__": True})              # clic su GENERA PIANO BASE DALLA BOZZA
         self.assertTrue([c for c in st.method_calls if c[0] == "rerun"])
         self.assertIn("keyword_plan", json.loads((self.root / "LAUNCH" / f"{lid}.json").read_text(encoding="utf-8")))
         st2 = page.render(self.root, {"Bozza di lancio": lid})                                 # il rerun mostra il piano salvato
@@ -492,14 +492,14 @@ class LaunchPageStateTests(unittest.TestCase):
         self.assertEqual(self.at.session_state["current_launch_id"], lid)
         self.assertEqual(self.at.session_state["selected_launch_id"], lid)
         self.assertTrue(any("Bozza di lancio salvata" in s.value for s in self.at.success))
-        self.assertIn("GENERA PIANO KEYWORD", [b.label for b in self.at.button])               # ora il pulsante e' disponibile
+        self.assertIn("GENERA PIANO BASE DALLA BOZZA", [b.label for b in self.at.button])               # ora il pulsante e' disponibile
 
     def test_generate_plan_updates_same_draft_without_duplicates(self):
         self.fill_and_save()
         lid = self.drafts()[0][:-5]
         before = self.plan_json(f"{lid}.json")
         self.assertNotIn("keyword_plan", before)
-        self.button("GENERA PIANO KEYWORD").click().run()
+        self.button("GENERA PIANO BASE DALLA BOZZA").click().run()
         self.assertFalse(self.at.exception)
         self.assertEqual(self.picked(), lid)                                                   # stessa bozza, non torna a "Nuova bozza"
         self.assertEqual(self.drafts(), [f"{lid}.json"])                                       # nessun _2, _3
@@ -514,7 +514,7 @@ class LaunchPageStateTests(unittest.TestCase):
         self.fill_and_save()
         lid = self.drafts()[0][:-5]
         self.assertFalse(set(SECTIONS[:-1]) & set(self.headers()))                              # prima: nessuna sezione del piano keyword
-        self.button("GENERA PIANO KEYWORD").click().run()
+        self.button("GENERA PIANO BASE DALLA BOZZA").click().run()
         for _ in range(3):                                                                     # rerun successivi (anche senza clic)
             heads = " | ".join(self.headers())
             for s in SECTIONS:
@@ -527,7 +527,7 @@ class LaunchPageStateTests(unittest.TestCase):
         self.fill_and_save()
         lid = self.drafts()[0][:-5]
         for _ in range(2):
-            self.button("GENERA PIANO KEYWORD").click().run()
+            self.button("GENERA PIANO BASE DALLA BOZZA").click().run()
             self.assertEqual(self.picked(), lid)
         self.assertEqual(self.drafts(), [f"{lid}.json"])
 
@@ -545,7 +545,7 @@ class LaunchPageStateTests(unittest.TestCase):
         first = self.drafts()[0][:-5]
         self.picker().set_value(None).run()                                                    # l'utente sceglie "Nuova bozza"
         self.assertIsNone(self.picked())
-        self.assertNotIn("GENERA PIANO KEYWORD", [b.label for b in self.at.button])
+        self.assertNotIn("GENERA PIANO BASE DALLA BOZZA", [b.label for b in self.at.button])
         self.field("Titolo").set_value("Altro libro")
         self.field("Prezzo").set_value("9.99")
         self.field("Royalty per copia").set_value("3.5")
@@ -566,7 +566,7 @@ class LaunchPageStateTests(unittest.TestCase):
         with mock.patch("socket.getaddrinfo", side_effect=AssertionError("rete usata")), \
                 mock.patch("socket.create_connection", side_effect=AssertionError("rete usata")):
             self.fill_and_save()
-            self.button("GENERA PIANO KEYWORD").click().run()
+            self.button("GENERA PIANO BASE DALLA BOZZA").click().run()
         self.assertFalse(self.at.exception)
         self.assertEqual(hashlib.sha256(self.books.read_bytes()).hexdigest(), self.books_sha)   # books.json invariato
         self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["CONFIG", "LAUNCH"])     # nessun DB Ads, INPUT, OUTPUT, LOGS
