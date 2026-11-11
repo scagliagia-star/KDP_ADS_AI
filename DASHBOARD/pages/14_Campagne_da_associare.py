@@ -26,6 +26,20 @@ for kind, text in (S.pop("ca_flash", None) or []):
     {"ok": st.success, "warn": st.warning, "err": st.error}.get(kind, st.info)(text)
 
 
+if S.get("ca_recalc_pairs"):
+    pairs = S["ca_recalc_pairs"]
+    st.info("Associazione aggiornata. Per attribuire le decisioni future al libro corretto esegui il ricalcolo dei due libri: " + ", ".join(f"{b_} ({m_})" for b_, m_ in pairs))
+    r1, r2 = st.columns(2)
+    if r1.button("RICALCOLA ORA I DUE LIBRI", key="ca_recalc_go") is True:
+        res = GI.recalc_books(ws, pairs)
+        S.pop("ca_recalc_pairs", None)
+        S["ca_flash"] = [("ok" if res.ok else "err", res.message)] + [("warn" if x["ok"] else "err", f"{x['book_id']} ({x['marketplace']}): {x['message']}") for x in (res.data or {}).get("recalc", [])]
+        st.rerun()
+    if r2.button("PIÙ TARDI", key="ca_recalc_later") is True:
+        S.pop("ca_recalc_pairs", None)
+        st.rerun()
+
+
 def flash_and_rerun(res, ok_text):
     msgs = [("ok" if res.ok else "err", ok_text if res.ok else "; ".join(res.errors))]
     msgs += [("warn", e) for e in (res.errors if res.ok else [])]
@@ -247,13 +261,81 @@ with tabs[1]:
             flash_and_rerun(GI.unignore(ws, cid, account_id=m["account_id"]), "La campagna è di nuovo da associare")
     st.caption("Ignorare non cancella nessun dato: la campagna smette solo di comparire fra quelle da associare. L'ignore vale solo per l'account indicato.")
 
-# ---------------------------------------------------------------- ASSOCIATE
+# ---------------------------------------------------------------- GIÀ ASSOCIATE (con correzione: CAMBIA ASSOCIAZIONE)
 with tabs[2]:
     asg = GI.campaign_list(ws, "ASSIGNED")
     if not asg:
         st.caption("Nessuna campagna associata.")
     else:
-        st.dataframe([{"Account": acct_label(m["account_id"], m.get("account_name_last_seen")), "Libro": book_label(m["book_id"], m["marketplace"]) if m["book_id"] in books else titles.get(m["book_id"], m["book_id"]), "Marketplace": m["marketplace"], "Valuta": m.get("currency") or "n/d",
-                       "Campagna interna": m["campaign_id"], "Tipo": ("AUTO" if m["campaign_type"] == "OTHER" and m.get("detected_kind") in (None, "AUTO") else U.CAMPAIGN_TYPE_LABELS.get(m["campaign_type"], m["campaign_type"])), "Nome in Amazon": m["campaign_name_last_seen"], "ID campagna Amazon": m["amazon_campaign_id"],
-                       "Portfolio": m["portfolio_last_seen"] or "n/d", "Stato": "associata"} for m in asg], use_container_width=True, hide_index=True)
-    st.caption("Un'associazione già confermata non viene cambiata in silenzio.")
+        def kind_label(m):
+            return "AUTO" if m["campaign_type"] == "OTHER" and m.get("detected_kind") in (None, "AUTO") else U.CAMPAIGN_TYPE_LABELS.get(m["campaign_type"], m["campaign_type"] or "n/d")
+
+        def cur_book(m):
+            return book_label(m["book_id"], m["marketplace"]) if m["book_id"] in books else titles.get(m["book_id"], m["book_id"] or "n/d")
+
+        st.markdown("**Cerca e filtra le campagne già associate** (per correggere un errore senza scorrere l'elenco)")
+        f1, f2, f3, f4, f5 = st.columns([3, 2, 2, 2, 3])
+        q = f1.text_input("Cerca (Campaign ID, nome campagna, libro, account)", key="ca_as_q").strip().lower()
+        accs = sorted({m["account_id"] for m in asg}, key=str)
+        f_acc = f2.selectbox("Account", ["Tutti", *accs], format_func=lambda a_: a_ if a_ == "Tutti" else acct_label(a_), key="ca_as_acc")
+        mps = sorted({(m["marketplace"] or "n/d").upper() for m in asg})
+        f_mp = f3.selectbox("Marketplace", ["Tutti", *mps], key="ca_as_mp")
+        bks = sorted({m["book_id"] for m in asg if m["book_id"]}, key=lambda b_: titles.get(b_, str(b_)))
+        f_bk = f4.selectbox("Libro", ["Tutti", *bks], format_func=lambda b_: b_ if b_ == "Tutti" else titles.get(b_, b_), key="ca_as_bk")
+        f_pf = f5.text_input("Portfolio", key="ca_as_pf").strip().lower()
+
+        def match(m):
+            hay = " ".join(str(x or "") for x in (m["amazon_campaign_id"], m["campaign_name_last_seen"], m["campaign_id"], cur_book(m), m["book_id"], m["account_id"], m.get("account_name_last_seen"))).lower()
+            return ((not q or q in hay) and (f_acc == "Tutti" or m["account_id"] == f_acc) and (f_mp == "Tutti" or (m["marketplace"] or "n/d").upper() == f_mp)
+                    and (f_bk == "Tutti" or m["book_id"] == f_bk) and (not f_pf or f_pf in str(m["portfolio_last_seen"] or "").lower()))
+
+        shown = [m for m in asg if match(m)]
+        st.caption(f"{len(shown)} campagne su {len(asg)}")
+        st.dataframe([{"Account": acct_label(m["account_id"], m.get("account_name_last_seen")), "Marketplace": m["marketplace"] or "n/d", "Campagna": m["campaign_name_last_seen"] or m["campaign_id"],
+                       "Campaign ID": m["amazon_campaign_id"], "Portfolio": m["portfolio_last_seen"] or "n/d", "Tipo rilevato": kind_label(m), "Libro attuale": cur_book(m),
+                       "book_id attuale": m["book_id"], "Campagna interna": m["campaign_id"]} for m in shown], use_container_width=True, hide_index=True)
+        st.markdown("**CAMBIA ASSOCIAZIONE** — scegli la campagna da correggere")
+        for m in shown[:25]:
+            cid, acc = m["amazon_campaign_id"], m["account_id"]
+            with st.container(border=True):
+                st.markdown(f"**{F.esc(m['campaign_name_last_seen'] or m['campaign_id'])}** · Campaign ID `{cid}` · {F.esc(cur_book(m))}", unsafe_allow_html=True)
+                st.caption(f"ACCOUNT: {acct_label(acc, m.get('account_name_last_seen'))} · MARKETPLACE: {m['marketplace'] or 'n/d'} · Portfolio: {m['portfolio_last_seen'] or 'nessuno'} · Tipo: {kind_label(m)}")
+                if S.get("ca_reassign") != [acc, cid]:
+                    if st.button("CAMBIA ASSOCIAZIONE", key=kk("ca_re", acc, cid)) is True:
+                        S["ca_reassign"] = [acc, cid]
+                        st.rerun()
+                    continue
+                mp_ = (m["marketplace"] or "").upper()
+                opts = [b_ for b_ in book_options(mp_ or None) if b_ != m["book_id"]]                 # stesso marketplace, libro esistente, diverso dall'attuale
+                if m.get("marketplace_mismatch") or m.get("marketplace_conflict"):
+                    st.error("Marketplace da verificare: ripara prima il marketplace (pagina Report globali Amazon Ads).")
+                elif not opts:
+                    st.warning(f"Nessun altro libro con la variante {mp_ or 'n/d'}: non posso proporre un libro di un altro marketplace.")
+                else:
+                    new_b = st.selectbox(f"Nuovo libro ({mp_})", opts, format_func=lambda b_, _m=mp_: book_label(b_, _m), key=kk("ca_re_b", acc, cid))
+                    st.markdown(f"**CAMPAGNA:** {F.esc(m['campaign_name_last_seen'] or m['campaign_id'])}  \n**Campaign ID:** `{cid}`  \n**ASSOCIAZIONE ATTUALE:** {F.esc(cur_book(m))}  \n"
+                                f"**NUOVA ASSOCIAZIONE:** {F.esc(book_label(new_b, mp_))}", unsafe_allow_html=True)
+                    warn = GI.coherence_warning(ws, m, new_b)
+                    if warn:
+                        st.warning(warn)                                                              # NON bloccante: il salvataggio resta possibile
+                    st.info("Questa operazione non modifica Amazon Ads e non reimporta i report. Aggiorna solo il mapping locale della campagna (e l'attribuzione al nuovo libro dei dati già "
+                            "smistati di questa campagna: nessuna riga viene cancellata).")
+                    b1, b2 = st.columns(2)
+                    if b1.button("CONFERMA RIASSOCIAZIONE", key=kk("ca_re_ok", acc, cid)) is True:
+                        res = GI.reassociate(ws, cid, new_b, acc, marketplace=mp_ or None)
+                        S.pop("ca_reassign", None)
+                        if res.ok:
+                            S["ca_recalc_pairs"] = sorted((res.data or {}).get("books", []))
+                        S["ca_flash"] = [("ok", res.message)] if res.ok else [("err", "; ".join(res.errors))]
+                        st.rerun()
+                    if b2.button("ANNULLA", key=kk("ca_re_no", acc, cid)) is True:
+                        S.pop("ca_reassign", None)
+                        st.rerun()
+        if len(shown) > 25:
+            st.caption(f"Mostrate le prime 25 su {len(shown)}: restringi la ricerca per vedere le altre.")
+    st.caption("Un'associazione già confermata non viene cambiata in silenzio: serve CAMBIA ASSOCIAZIONE e una conferma esplicita. Non si può spostare una campagna su un altro marketplace.")
+    hist = GI.reassignments(ws)
+    if hist:
+        with st.expander(f"Storico riassociazioni ({len(hist)})"):
+            st.dataframe([{"Quando": h["repaired_at"], "Account": h.get("account_id") or "n/d", "Marketplace": h.get("marketplace"), "Campaign ID": h.get("amazon_campaign_id"),
+                           "Libro precedente": h.get("old_book_id"), "Nuovo libro": h.get("new_book_id")} for h in hist], use_container_width=True, hide_index=True)

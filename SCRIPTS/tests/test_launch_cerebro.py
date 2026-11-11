@@ -1,6 +1,7 @@
 """LANCIO NUOVO LIBRO + HELIUM 10 CEREBRO: la pagina 10 carica Cerebro (e Rocket) con riconoscimento automatico, usa il profilo della BOZZA per la pertinenza e mostra P1/P2/P3 con la STESSA
 logica (keyword_research) della pagina «Ricerca keyword / competitor». Workspace temporaneo: mai il DB reale, mai books.json reale, mai la cartella LAUNCH reale, nessuna rete, nessuna Amazon."""
 import hashlib
+import json
 import os
 import sqlite3
 import sys
@@ -296,6 +297,15 @@ class OnePrimaryPlanTests(LaunchPageBase):
 REAL = {"B0C87HNVKW": 315, "8409903091": 272, "B0FGT8LTXQ": 1289, "B0GFW8236T": 702, "B0GR64286Q": 214}
 
 
+
+def copy_draft_without_research(dst_dir: Path) -> None:
+    """COPIA della bozza reale SENZA i file di ricerca gia' importati dall'utente (il test parte da una bozza pulita; la bozza reale non viene toccata)."""
+    d = json.loads(REAL_DRAFT.read_text(encoding="utf-8"))
+    d.pop("research", None)
+    d.pop("keyword_plan", None)
+    (dst_dir / REAL_DRAFT.name).write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+
+
 @unittest.skipUnless(AppTest is not None and REAL_DRAFT.is_file() and all((DOWNLOADS / TK.cname(c)).is_file() for c in REAL), "bozza reale o file Cerebro reali non presenti")
 class RealLaunchWorkflowTests(unittest.TestCase):
     def test_five_real_cerebro_files_in_the_launch_workflow(self):
@@ -305,7 +315,7 @@ class RealLaunchWorkflowTests(unittest.TestCase):
             (root / "CONFIG").mkdir()
             (root / "CONFIG" / "books.json").write_text("[]", encoding="utf-8")
             (root / "LAUNCH").mkdir()
-            shutil.copy(REAL_DRAFT, root / "LAUNCH" / REAL_DRAFT.name)                              # COPIA: la bozza reale non viene toccata
+            copy_draft_without_research(root / "LAUNCH")                              # COPIA: la bozza reale non viene toccata
             before = hashlib.sha256(REAL_DRAFT.read_bytes()).hexdigest()
             ws = workspace.from_root(root)
             lid = REAL_DRAFT.stem
@@ -342,7 +352,7 @@ class RealLaunchWorkflowTests(unittest.TestCase):
             (root / "CONFIG").mkdir()
             (root / "CONFIG" / "books.json").write_text("[]", encoding="utf-8")
             (root / "LAUNCH").mkdir()
-            shutil.copy(REAL_DRAFT, root / "LAUNCH" / REAL_DRAFT.name)
+            copy_draft_without_research(root / "LAUNCH")
             env = {k: os.environ.get(k) for k in ("KDP_ADS_ROOT", "KDP_ADS_DB")}
             os.environ["KDP_ADS_ROOT"] = str(root)
             os.environ.pop("KDP_ADS_DB", None)

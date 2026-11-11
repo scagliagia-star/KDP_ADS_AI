@@ -938,6 +938,106 @@ def unignore(conn, amazon_campaign_id: str, now: str | None = None, account_id: 
         raise GlobalImportError("La campagna non è tra quelle ignorate")
 
 
+# ------------------------------------------------------------------ RIASSOCIAZIONE (correzione di un mapping sbagliato)
+GENERIC_NAME_TOKENS = frozenset("auto frase exact phrase esatta sp campaign ads book broad competitor prodotto prodotti keyword keyword targeting".split())
+REASSIGN_KIND = "REASSIGN_CAMPAIGN"                         # audit nella tabella ESISTENTE global_report_repairs (nessuna tabella nuova)
+
+
+def coherence_warning(campaign: dict, book_text: str | None) -> str | None:
+    """Avviso NON BLOCCANTE di incoerenza fra una campagna e il libro scelto. Segnali semplici e conservativi: i termini SIGNIFICATIVI del nome campagna, del portfolio, del codice
+    campagna interno e dell'ad group (parole generiche come AUTO, FRASE, EXACT, PHRASE, ESATTA, SP, CAMPAIGN, ADS, BOOK, numeri e date ignorati). Se ce ne sono e NESSUNO compare nel
+    titolo del libro -> avviso. Senza segnali (campagna dal nome generico) o con almeno un termine in comune: nessun avviso. Non impedisce mai il salvataggio."""
+    raw = []
+    for key in ("campaign_name_last_seen", "portfolio_last_seen", "campaign_id", "ad_group_last_seen"):
+        text = unicodedata.normalize("NFKD", str(campaign.get(key) or "")).encode("ascii", "ignore").decode().lower()
+        text = re.sub(r"\b\d{1,2}/\d{1,2}/\d{4}.*$", " ", text)                  # data/ora automatiche nei nomi campagna Amazon
+        raw += re.findall(r"[a-z]+", text)
+    signals, seen = [], set()
+    for w in raw:
+        st_ = _stem(w)
+        if len(w) < 3 or w in _STOP or w in GENERIC_NAME_TOKENS or st_ in GENERIC_NAME_TOKENS or st_ in seen:
+            continue
+        seen.add(st_)
+        signals.append(w)
+    if not signals:
+        return None
+    if {_stem(w) for w in signals} & _tokens(book_text):
+        return None
+    shown = " / ".join(f"'{w.upper()}'" for w in signals[:3])
+    return (f"ATTENZIONE: il nome della campagna contiene {shown}, ma il libro selezionato sembra diverso. Verifica prima di confermare.")
+
+
+def reassociate(conn, settings, amazon_campaign_id: str, new_book_id: str, account_id: str | None = None, marketplace: str | None = None, now: str | None = None) -> dict:
+    """CORREGGE il libro di una campagna GIA' ASSOCIATA. Identita' = (account, marketplace, ID campagna Amazon): lo stesso ID in un altro account o marketplace NON viene toccato.
+    Cosa cambia (e SOLO questo): la riga di campaign_book_mapping (book_id, campaign_id interno) e l'ATTRIBUZIONE al nuovo libro delle copie gia' smistate di quella campagna nelle
+    tabelle del motore (campaigns, imports, target_rows, search_term_rows: book_id / campaign_id interno / snapshot_id; nessuna riga cancellata o duplicata, conteggi invariati).
+    Restano com'erano: global_report_rows e global_report_imports, decision_runs e decisioni storiche (riferite al vecchio libro), analisi e raccomandazioni. Il motore non viene toccato:
+    dopo la correzione serve un ricalcolo dei due libri. Rifiuta: campagna non associata, stesso libro, cambio di marketplace (US<->UK), marketplace in conflitto, campagna collegata a
+    uno storico (backfill), libro senza la variante del marketplace, libro di destinazione che ha gia' dati di questa campagna. Audit in global_report_repairs."""
+    import json as _json
+    from . import importer
+    ensure_schema(conn)
+    now = now or now_iso()
+    cid = str(amazon_campaign_id)
+    m = resolve_mapping(conn, cid, account_id)
+    if m is None:
+        raise GlobalImportError(f"Campagna {cid} sconosciuta" + (f" per l'account {account_id}" if account_id else ""))
+    if m["status"] != "ASSIGNED":
+        raise GlobalImportError(f"La campagna {cid} non è associata a nessun libro: usa «ASSOCIA A LIBRO ESISTENTE»")
+    ak, old_book, old_int = m["account_id"], m["book_id"], m["campaign_id"]
+    mp = str(m["marketplace"] or "").upper()
+    new_book = str(new_book_id)
+    if new_book == old_book:
+        raise GlobalImportError(f"La campagna {cid} è già associata al libro {old_book}")
+    if m["marketplace_conflict"]:
+        raise GlobalImportError(f"ACCOUNT/MARKETPLACE CONFLICT: la campagna {cid} compare su più marketplace: ripara prima il marketplace")
+    if marketplace and str(marketplace).upper() != mp:
+        raise GlobalImportError(f"ACCOUNT/MARKETPLACE CONFLICT: la campagna {cid} è del marketplace {mp}: non può essere spostata su {str(marketplace).upper()} (serve un flusso esplicito diverso)")
+    if m["backfill_of"]:
+        raise GlobalImportError(f"La campagna {cid} è collegata alla campagna storica «{m['backfill_of']}» (backfill): non si riassegna da qui")
+    full, view, eco = _book_context(settings, new_book, mp)                     # il libro deve esistere ed avere la variante del marketplace della campagna
+    for table in ("target_rows", "search_term_rows"):
+        if conn.execute(f"SELECT 1 FROM {table} WHERE book_id=? AND amazon_campaign_id=? AND COALESCE(amazon_account_id,'')=? LIMIT 1", (new_book, cid, ak)).fetchone():
+            raise GlobalImportError(f"Il libro {new_book} contiene già dati di questa campagna: riassociazione non eseguita (nessun dato duplicato)")
+    taken = {r[0] for r in conn.execute("SELECT campaign_id FROM campaigns WHERE book_id=?", (new_book,))} | \
+            {r[0] for r in conn.execute("SELECT campaign_id FROM campaign_book_mapping WHERE book_id=? AND campaign_id IS NOT NULL", (new_book,))}
+    new_int, n = old_int, 2
+    while new_int in taken:
+        new_int, n = f"{old_int}_{n}", n + 1
+    imps = _rows(conn, "SELECT import_id, snapshot_id FROM imports WHERE book_id=? AND campaign_id=? AND file_path LIKE 'GLOBAL:%' AND file_sha256 LIKE '%:' || ?", (old_book, old_int, cid))
+    importer._sync_book(conn, full, view, eco)
+    old_prefix, new_prefix = f"{old_book}|{old_int}|", f"{new_book}|{new_int}|"
+    moved = {"imports": 0, "target_rows": 0, "search_term_rows": 0}
+    with conn:
+        if conn.execute("SELECT 1 FROM campaigns WHERE book_id=? AND campaign_id=?", (old_book, old_int)).fetchone():
+            conn.execute("UPDATE campaigns SET book_id=?, campaign_id=?, currency=? WHERE book_id=? AND campaign_id=?", (new_book, new_int, view["currency"], old_book, old_int))
+        for im in imps:
+            snap = im["snapshot_id"] or ""
+            new_snap = new_prefix + snap[len(old_prefix):] if snap.startswith(old_prefix) else snap
+            conn.execute("UPDATE imports SET book_id=?, campaign_id=?, currency=?, snapshot_id=? WHERE import_id=?", (new_book, new_int, view["currency"], new_snap, im["import_id"]))
+            moved["imports"] += 1
+            for table in ("target_rows", "search_term_rows"):
+                moved[table] += conn.execute(f"UPDATE {table} SET book_id=?, campaign_id=?, currency=?, snapshot_id=? WHERE import_id=?", (new_book, new_int, view["currency"], new_snap, im["import_id"])).rowcount
+        conn.execute("UPDATE campaign_book_mapping SET book_id=?, campaign_id=?, updated_at=? WHERE account_id=? AND amazon_campaign_id=?", (new_book, new_int, now, ak, cid))
+        conn.execute("INSERT INTO global_report_repairs (repaired_at, kind, details_json) VALUES (?,?,?)",
+                     (now, REASSIGN_KIND, _json.dumps({"timestamp": now, "account_id": ak, "marketplace": mp, "amazon_campaign_id": cid, "campaign_name": m["campaign_name_last_seen"],
+                                                       "old_book_id": old_book, "new_book_id": new_book, "old_campaign_id": old_int, "new_campaign_id": new_int, "moved": moved},
+                                                      ensure_ascii=False)))
+    return {"account_id": ak, "marketplace": mp, "amazon_campaign_id": cid, "old_book_id": old_book, "new_book_id": new_book, "old_campaign_id": old_int, "new_campaign_id": new_int,
+            "moved": moved, "books": {(old_book, mp), (new_book, mp)}}
+
+
+def reassignments(conn, limit: int = 50) -> list:
+    """Storico delle riassociazioni (audit), dalla piu' recente."""
+    out = []
+    for r in _rows(conn, "SELECT repaired_at, details_json FROM global_report_repairs WHERE kind=? ORDER BY repair_id DESC LIMIT ?", (REASSIGN_KIND, limit)):
+        try:
+            out.append({"repaired_at": r["repaired_at"], **json.loads(r["details_json"] or "{}")})
+        except ValueError:
+            continue
+    return out
+
+
 # ------------------------------------------------------------------ letture per la dashboard
 def counts(conn) -> dict:
     if not has_schema(conn):

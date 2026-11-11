@@ -223,6 +223,53 @@ def associate(ws, amazon_campaign_id, book_id, internal_campaign_id=None, campai
         conn.close()
 
 
+def reassociate(ws, amazon_campaign_id, new_book_id, account_id, marketplace=None, recalc=False) -> OpResult:
+    """CORREZIONE di una campagna GIA' associata al libro sbagliato (identita' = account + marketplace + ID campagna Amazon). Un backup prima della scrittura. Non reimporta i report, non
+    cancella nulla, non tocca Amazon Ads ne' books.json. Il ricalcolo dei due libri e' ESPLICITO (recalc=True solo se richiesto): di default l'utente lo esegue dopo."""
+    bk = backup_db(ws, "riassocia_campagna")
+    conn = connect(ws.db_path)
+    logger, _ = setup_logger(ws.logs_dir, "global_reassociate")
+    try:
+        r = GS.reassociate(conn, ws.settings, amazon_campaign_id, new_book_id, account_id, marketplace)
+        logger.info("RIASSOCIAZIONE %s | account %s | marketplace %s | campagna %s | %s -> %s", r["moved"], r["account_id"] or "n/d", r["marketplace"], r["amazon_campaign_id"],
+                    r["old_book_id"], r["new_book_id"])
+        rec = recalculate(ws, r["books"], conn, logger) if recalc else []
+        return OpResult(True, [], "Associazione aggiornata. Esegui un nuovo ricalcolo per attribuire le decisioni future al libro corretto.",
+                        {**r, "recalc": rec, "backup": str(bk) if bk else None})
+    except (GS.GlobalImportError, registry.RegistryError) as e:
+        return OpResult(False, [str(e)])
+    finally:
+        close_logger(logger)
+        conn.close()
+
+
+def reassignments(ws) -> list:
+    """Audit delle riassociazioni (sola lettura)."""
+    conn = read_conn(ws)
+    if conn is None:
+        return []
+    try:
+        return GS.reassignments(conn)
+    finally:
+        conn.close()
+
+
+def recalc_books(ws, pairs) -> OpResult:
+    """Ricalcolo ESPLICITO di coppie (libro, marketplace) gia' esistenti (es. i due libri di una riassociazione). Un backup, poi analisi + decisioni."""
+    pairs = {(str(b), str(m)) for b, m in pairs}
+    bk = backup_db(ws, "ricalcolo_libri")
+    rec = recalculate(ws, pairs)
+    ok = all(x["ok"] for x in rec)
+    return OpResult(ok, [f"{x['book_id']} ({x['marketplace']}): {x['message']}" for x in rec if not x["ok"]], "Ricalcolo eseguito" if ok else "Ricalcolo con errori",
+                    {"recalc": rec, "backup": str(bk) if bk else None})
+
+
+def coherence_warning(ws, campaign: dict, book_id: str) -> str | None:
+    """Avviso NON BLOCCANTE se il nome/portfolio della campagna non e' coerente col libro scelto (solo lettura, mai un blocco)."""
+    b = books_dict(ws).get(book_id) or {}
+    return GS.coherence_warning(campaign, f"{b.get('title') or ''} {b.get('subtitle') or ''}".strip())
+
+
 def associate_many(ws, items: list, recalc=True) -> OpResult:
     """items = [{amazon_campaign_id, account_id?, book_id, internal_campaign_id?, campaign_type?, marketplace?}]. Un backup e un ricalcolo per libro; una campagna non valida non blocca
     le altre. `account_id` identifica la campagna insieme all'ID Amazon (omesso solo se l'ID e' presente in un unico account)."""
