@@ -8,7 +8,7 @@ from .decfields import DEC_FIELDS, STATUSES
 from .recfields import REC_FIELDS
 from . import competitor_store, globalstore, manual_actions
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # Colonne di contesto presenti in imports e in ogni riga dati (denormalizzate per filtrare senza JOIN).
 _CTX = """
@@ -264,16 +264,18 @@ def rebuild_global_imports_unique(conn) -> bool:
 
 
 def rebuild_global_imports_window_check(conn) -> bool:
-    """v7 -> v8 (finestre di sostegno 65D e LIFETIME): il CHECK su `window_label` di `global_report_imports` ammetteva solo RECENT_7D / RECENT_30D e `window_days` era NOT NULL.
-    SQLite non modifica un CHECK: la tabella v7 viene RINOMINATA `global_report_imports_v7_old` (resta come audit, nessun DROP di tabelle, nessun dato cancellato) e la nuova,
-    con la forma v8, e' popolata ricopiando TUTTE le righe con gli stessi gimport_id (righe figlie e chiavi esterne invariate). Gli indici univoci della vecchia tabella restano attaccati ad essa
-    (nessun DROP): quelli della tabella nuova hanno nomi nuovi (ux_gri_active_v8, ux_gri_file_mp_v8) e li crea globalstore.ensure_schema. Una sola transazione (o tutto o niente), idempotente: con la forma v8 non fa nulla.
-    Ritorna True se ha ricostruito la tabella."""
+    """v7/v8 -> v9 (finestra di CONTESTO 90D): il CHECK su `window_label` di `global_report_imports` ammette ora RECENT_7D / RECENT_30D / RECENT_90D / LIFETIME e CONSERVA RECENT_65D
+    (finestra LEGACY: gli snapshot 65D gia' importati restano nel database, leggibili e auditabili; non si possono piu' importare nuovi 65D dalla pagina). SQLite non modifica un CHECK:
+    la tabella precedente viene RINOMINATA (`global_report_imports_v7_old` se aveva ancora la forma v7, `global_report_imports_v8_old` se la forma v8: resta come audit, nessun DROP di tabelle,
+    nessun dato cancellato) e la nuova, con la forma v9, e' popolata ricopiando TUTTE le righe con gli stessi gimport_id (righe figlie e chiavi esterne invariate). Gli indici univoci della
+    vecchia tabella restano attaccati ad essa (nessun DROP): quelli della tabella nuova hanno nomi nuovi (ux_gri_active_v9, ux_gri_file_mp_v9) e li crea globalstore.ensure_schema.
+    Una sola transazione (o tutto o niente), idempotente: con la forma v9 non fa nulla. Ritorna True se ha ricostruito la tabella."""
     row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='global_report_imports'").fetchone()
-    if not row or "RECENT_65D" in row[0]:
+    if not row or "RECENT_90D" in row[0]:
         return False
-    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='global_report_imports_v7_old'").fetchone():
-        raise RuntimeError("migrazione v8: esiste gia' global_report_imports_v7_old ma global_report_imports ha ancora la forma v7: intervento manuale necessario")
+    old_name = "global_report_imports_v8_old" if "RECENT_65D" in row[0] else "global_report_imports_v7_old"
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (old_name,)).fetchone():
+        raise RuntimeError(f"migrazione v9: esiste gia' {old_name} ma global_report_imports ha ancora la forma precedente: intervento manuale necessario")
     cols = [r[1] for r in conn.execute("PRAGMA table_info(global_report_imports)")]
     n_before = conn.execute("SELECT COUNT(*) FROM global_report_imports").fetchone()[0]
     conn.commit()
@@ -281,15 +283,15 @@ def rebuild_global_imports_window_check(conn) -> bool:
     conn.execute("PRAGMA legacy_alter_table=ON")                  # le REFERENCES delle righe figlie restano sul nome `global_report_imports`
     try:
         conn.execute("BEGIN")
-        conn.execute("ALTER TABLE global_report_imports RENAME TO global_report_imports_v7_old")
+        conn.execute(f"ALTER TABLE global_report_imports RENAME TO {old_name}")
         conn.execute(globalstore._IMPORTS_DDL.format(name="global_report_imports").replace("IF NOT EXISTS ", ""))
         keep = [c for c in cols if c in {r[1] for r in conn.execute("PRAGMA table_info(global_report_imports)")}]
-        conn.execute(f"INSERT INTO global_report_imports ({','.join(keep)}) SELECT {','.join(keep)} FROM global_report_imports_v7_old ORDER BY gimport_id")
+        conn.execute(f"INSERT INTO global_report_imports ({','.join(keep)}) SELECT {','.join(keep)} FROM {old_name} ORDER BY gimport_id")
         if conn.execute("SELECT COUNT(*) FROM global_report_imports").fetchone()[0] != n_before:
-            raise RuntimeError("migrazione global_report_imports (v8): numero di righe diverso, annullata")
+            raise RuntimeError("migrazione global_report_imports (v9): numero di righe diverso, annullata")
         conn.commit()
         if conn.execute("PRAGMA foreign_key_check").fetchall():
-            raise RuntimeError("migrazione global_report_imports (v8): violazioni di chiave esterna")
+            raise RuntimeError("migrazione global_report_imports (v9): violazioni di chiave esterna")
     except Exception:
         conn.rollback()
         raise
@@ -300,7 +302,9 @@ def rebuild_global_imports_window_check(conn) -> bool:
 
 
 def _upgrade(conn):
-    """v7 -> v8 (azioni manuali + finestre 65D / Lifetime nei report globali): tabella NUOVA `manual_actions` (additiva) e ricostruzione di `global_report_imports` per allargare il CHECK su
+    """v8 -> v9 (finestra di contesto 90D al posto del 65D): ricostruzione di `global_report_imports` per allargare il CHECK su window_label a RECENT_90D (RECENT_65D resta ammesso come LEGACY:
+    gli snapshot 65D gia' importati restano nel DB); la vecchia tabella resta come global_report_imports_v8_old, nessun dato perso. Backup pre-schema-v9 una sola volta; un DB nuovo nasce v9.
+    v7 -> v8 (azioni manuali + finestre 65D / Lifetime nei report globali): tabella NUOVA `manual_actions` (additiva) e ricostruzione di `global_report_imports` per allargare il CHECK su
     window_label (la vecchia tabella resta come global_report_imports_v7_old, nessun dato perso). Backup pre-schema-v8 una sola volta; un DB nuovo nasce direttamente v8.
     v1 (mono-libro) -> v2 (multi-book): ricrea le tabelle SOLO se vuote.
     v2 -> v3 (period snapshot): aggiunge period_id/snapshot_id e li ricalcola dai dati esistenti, SENZA perdere dati.
@@ -343,6 +347,6 @@ def _upgrade(conn):
                                  f"WHERE period_id IS NULL")
     _rebuild_imports_unique(conn)
     rebuild_global_imports_unique(conn)                               # v6 -> v7 (no-op se le tabelle globali non esistono ancora: nascono gia' in forma v7)
-    rebuild_global_imports_window_check(conn)                         # v7 -> v8 (no-op se le tabelle globali non esistono ancora o sono gia' v8)
+    rebuild_global_imports_window_check(conn)                         # v7/v8 -> v9 (no-op se le tabelle globali non esistono ancora o sono gia' v9)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     conn.commit()

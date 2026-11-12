@@ -32,21 +32,24 @@ for kind, text in (S.pop("gr_flash", None) or []):
 
 # ---------------------------------------------------------------- 1. quattro slot
 st.header(U.GLOBAL_SLOTS_HEADER)
-order = ["TARGETING_7D", "TARGETING_30D", "TARGETING_LIFETIME", "SEARCH_TERM_7D", "SEARCH_TERM_30D", "SEARCH_TERM_65D"]
 files = {}
-for pair in (order[:3], order[3:]):                           # prima riga: Targeting 7D | 30D | Lifetime (mensile); seconda riga: Search Term 7D | 30D | 65D
-    cols = st.columns(3)
-    for col, slot in zip(cols, pair):
-        with col:
-            f = st.file_uploader(GI.SLOT_LABELS[slot], type=["csv"], key=f"gr_{slot}_{n_up}")
-            if f is not None and hasattr(f, "getvalue") and isinstance(getattr(f, "name", None), str):
-                files[slot] = (f.name, f.getvalue())
+order = ["TARGETING_7D", "TARGETING_30D", "TARGETING_LIFETIME", "SEARCH_TERM_7D", "SEARCH_TERM_30D", "SEARCH_TERM_90D"]            # ordine dell'anteprima
+# SETTIMANALI: Search Term 7D / 30D / 90D e Targeting 7D / 30D. MENSILE: Targeting Lifetime. (90D = contesto intermedio; il vecchio 65D non si importa piu': gli snapshot 65D gia' presenti restano nel database)
+for title, groups in (("SETTIMANALI", (["SEARCH_TERM_7D", "SEARCH_TERM_30D", "SEARCH_TERM_90D"], ["TARGETING_7D", "TARGETING_30D"])), ("MENSILE", (["TARGETING_LIFETIME"],))):
+    st.subheader(title)
+    for slots in groups:
+        cols = st.columns(3)
+        for col, slot in zip(cols, slots):
+            with col:
+                f = st.file_uploader(GI.SLOT_LABELS[slot], type=["csv"], key=f"gr_{slot}_{n_up}")
+                if f is not None and hasattr(f, "getvalue") and isinstance(getattr(f, "name", None), str):
+                    files[slot] = (f.name, f.getvalue())
 # Un report Amazon puo' contenere campagne di PIU' marketplace (es. USD + GBP): il marketplace NON si sceglie per l'intero file ma per ogni gruppo valuta. USD -> US e GBP -> UK
 # sono automatici; una valuta ambigua (es. EUR) va scelta solo per il proprio gruppo.
 mpmap = S.setdefault("gr_mpmap", {})
 mp = dict(mpmap) or None
 fingerprint = hashlib.sha256(("|".join(f"{s}:{n}:{len(d)}:{hashlib.sha256(d).hexdigest()[:12]}" for s, (n, d) in sorted(files.items())) + f"|{sorted(mpmap.items())}").encode()).hexdigest()
-st.caption("Il tipo di report e la finestra (7D / 30D) sono quelli dello slot in cui carichi il file: «Intervallo di date» è solo un metadato di riga e non definisce lo snapshot. "
+st.caption("Il tipo di report e la finestra (7D / 30D / 90D / Lifetime) sono quelli dello slot in cui carichi il file: «Intervallo di date» è solo un metadato di riga e non definisce lo snapshot. "
            "Il marketplace si riconosce per ogni gruppo di campagne dalla valuta del report: un file con USD e GBP produce uno snapshot US e uno UK.")
 
 if st.button("ANALIZZA FILE", key="gr_analyze", disabled=not files) is True:

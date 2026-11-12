@@ -16,7 +16,7 @@ massimo passo di bid-down fra quelle concordi, e si attenua quando le evidenze d
   Winner: il motore analitico BID_UP_5_CANDIDATE diventa HOLD + growth_opportunity=BID_UP_5_OPPORTUNITY (nessun aumento operativo).
   Amazon: solo evidenza/audit (accordo direzionale), non modifica mai la decisione.
 PERIOD SNAPSHOT / RECENCY PRIORITY: l'evidenza tattica principale e' l'ULTIMO PERIODO COMPARABILE (Target e Search Term con le
-stesse date); il periodo piu' lungo (es. 65 giorni) e' contesto recente; il lifetime e' contesto storico. Il lifetime non viene
+stesse date); il periodo piu' lungo (es. 90 giorni) e' contesto recente; il lifetime e' contesto storico. Il lifetime non viene
 ignorato ma non puo' nascondere un peggioramento recente (C4) ne' imporre un bid-down se il periodo tattico e' sano (C6).
 DELIVERY SAFETY: ACOS/risultati sfavorevoli + delivery per-giorno CROLLATA (soglie in rules.json) => nessun bid-down forte,
 azione REVIEW_DELIVERY_BEFORE_BID_CHANGE (la priorita' resta quella del candidato sottostante); delivery in calo => passo max -5%."""
@@ -535,7 +535,11 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
         pool = e.st_win or e.tgt_win
         ctx_rec = sorted(pool, key=lambda r: ((win.rec_days(r) or 0), r["date_to"] or ""), reverse=True)[0] if pool else None
     else:
-        ctx_rec = ctx_cands[0] if ctx_cands else None
+        # CONTESTO INTERMEDIO: fra le finestre RECENT_CONTEXT si sceglie con la FRESCHEZZA rispetto al 30D corrente (90D ufficiale se fresco, altrimenti il 65D legacy fresco); mai somme
+        med = [r for r in ctx_cands if window_role(r["report_scope"], r["date_from"], r["date_to"], snap_cfg) == "RECENT_CONTEXT"]
+        picked = win.pick_context([(i, win.rec_days(r), r["date_to"]) for i, r in enumerate(med)], tac_rec["date_to"] if tac_rec else None,
+                                  snap_cfg.get("context_freshness_days", win.CONTEXT_FRESHNESS_DAYS)) if med else None
+        ctx_rec = med[picked] if picked is not None else (ctx_cands[0] if ctx_cands else None)
     Rc = make_ev(ctx_rec, ctx, cfg, True) if ctx_rec else None
     if len(e.st_win) > 1 and tac_pid is None:
         ds.warnings.append(f"NOTA {e.key}: {len(e.st_win)} finestre Search Term senza periodo tattico comparabile, uso la piu' lunga come contesto recente")
@@ -695,8 +699,8 @@ def _consolidate(e: Entity, ctx, cfg, cross, bid_of, amz_by_target, matched_amz,
         elif t_state == "WATCH_RECENT" and rule == "C0_NO_DOWN" and resolved is None:
             trend_watch = True
 
-    # ---- ESCALATION RECENTE (kdp_ads/escalation.py): 30D primario + 7D che conferma (+ 65D come contesto): il Lifetime frena (passo piu' prudente) ma non annulla un deterioramento
-    # recente forte. Mai dal solo 7D o dal solo 65D; senza riga 7D (MISSING_7D) non si escala. Solo se piu' forte di quanto gia' deciso.
+    # ---- ESCALATION RECENTE (kdp_ads/escalation.py): 30D primario + 7D che conferma (+ 90D come contesto): il Lifetime frena (passo piu' prudente) ma non annulla un deterioramento
+    # recente forte. Mai dal solo 7D o dal solo 90D; senza riga 7D (MISSING_7D) non si escala. Solo se piu' forte di quanto gia' deciso.
     if (e.kind != "neg" and Tv is not None and trend and trend.get("m") is not None and not tac_good and rule != "T2_RECENT_RECOVERY_NO_DOWN"):
         c_m = Rc.m if (Rc is not None and (win.rec_days(Rc.rec) or 0) > snap_cfg["tactical_max_days"]) else None
         esc = ESC.evaluate(Tv.m, L.m if L else None, c_m, trend["m"], ctx, ESC.config(ctx.rules))

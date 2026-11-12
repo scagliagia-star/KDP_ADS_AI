@@ -213,7 +213,8 @@ class UploadAndPeriodTests(WsBase):
     def test_periods(self):
         P = importing.resolve_period
         self.assertEqual(vars(P("LIFETIME", None, date(2026, 9, 30))), {"scope": "LIFETIME", "date_from": None, "date_to": "2026-09-30"})
-        self.assertEqual(vars(P("D65", None, date(2026, 9, 30))), {"scope": "DATE_RANGE", "date_from": "2026-07-28", "date_to": "2026-09-30"})
+        self.assertEqual(vars(P("D90", None, date(2026, 9, 30))), {"scope": "DATE_RANGE", "date_from": "2026-07-03", "date_to": "2026-09-30"})      # 90D = contesto intermedio
+        self.assertEqual(vars(P("D65", None, date(2026, 9, 30))), {"scope": "DATE_RANGE", "date_from": "2026-07-28", "date_to": "2026-09-30"})      # 65D = legacy, ancora risolvibile
         self.assertEqual(vars(P("D28", None, date(2026, 9, 26))), {"scope": "DATE_RANGE", "date_from": "2026-08-30", "date_to": "2026-09-26"})
         self.assertEqual(vars(P("CUSTOM", date(2026, 8, 1), date(2026, 8, 15))), {"scope": "DATE_RANGE", "date_from": "2026-08-01", "date_to": "2026-08-15"})
         for args in (("CUSTOM", date(2026, 9, 2), date(2026, 9, 1)), ("CUSTOM", None, date(2026, 9, 1)), ("D28", None, None), ("BOH", None, D_END)):
@@ -288,8 +289,8 @@ class ImportTests(WsBase):
         self.assertEqual({k: v for k, v in after.items() if "_originali" not in k}, {k: v for k, v in before.items() if "_originali" not in k})
 
     def test_snapshot_conflict(self):
-        self.report("C_EXACT", "SEARCH_TERM", "D65", scsv(), "s.csv")
-        plan, entry, dry, _ = self.report("C_EXACT", "SEARCH_TERM", "D65", scsv(3), "s_rexport.csv", commit=False)
+        self.report("C_EXACT", "SEARCH_TERM", "D90", scsv(), "s.csv")
+        plan, entry, dry, _ = self.report("C_EXACT", "SEARCH_TERM", "D90", scsv(3), "s_rexport.csv", commit=False)
         self.assertEqual((dry.status, dry.ok), ("SNAPSHOT_CONFLICT", False))
         self.assertTrue(any("SNAPSHOT_CONFLICT" in p for p in dry.problems))
         before = (self.folder / "metadata.json").read_text(encoding="utf-8")
@@ -300,7 +301,7 @@ class ImportTests(WsBase):
         self.assertEqual(self.count("imports"), 1)
 
     def test_wrong_report_type_is_an_error(self):
-        plan, entry, dry, _ = self.report("C_EXACT", "SEARCH_TERM", "D65", tcsv(), "t.csv", commit=False)      # e' un Target
+        plan, entry, dry, _ = self.report("C_EXACT", "SEARCH_TERM", "D90", tcsv(), "t.csv", commit=False)      # e' un Target
         self.assertEqual((dry.status, dry.ok), ("ERROR", False))
         self.assertTrue(dry.problems)
 
@@ -340,7 +341,7 @@ class FlowTests(WsBase):
         self.new_book()
         self.new_campaign()
         self.report("C_EXACT", "TARGETING", "LIFETIME", tcsv(), "t.csv")
-        self.report("C_EXACT", "SEARCH_TERM", "D65", scsv(), "s.csv")
+        self.report("C_EXACT", "SEARCH_TERM", "D90", scsv(), "s.csv")
         a = pipeline_ops.run_book_analysis(self.ws, "B0TEST0001")
         d = pipeline_ops.run_book_decisions(self.ws, "B0TEST0001", a.data["run_id"] if a.ok else None)
         return a, d
@@ -426,20 +427,20 @@ class WeeklyTests(WsBase):
 
     def test_incomplete_set_lists_what_is_missing(self):
         rows, st = self.status()
-        self.assertEqual(st, {"Target Lifetime": "MANCANTE", "Search Term 65D": "MANCANTE", "Target 30D": "MANCANTE", "Search Term 30D": "MANCANTE"})
+        self.assertEqual(st, {"Target Lifetime": "MANCANTE", "Search Term 90D": "MANCANTE", "Target 30D": "MANCANTE", "Search Term 30D": "MANCANTE"})
         self.assertFalse(rows[0]["complete"])
         self.assertFalse(weekly.book_complete(rows))
         self.report("C_EXACT", "TARGETING", "LIFETIME", tcsv(1), "a.csv")
-        self.report("C_EXACT", "SEARCH_TERM", "D65", scsv(1), "b.csv")
+        self.report("C_EXACT", "SEARCH_TERM", "D90", scsv(1), "b.csv")
         rows, st = self.status()
-        self.assertEqual((st["Target Lifetime"], st["Search Term 65D"], st["Target 30D"], st["Search Term 30D"]),
+        self.assertEqual((st["Target Lifetime"], st["Search Term 90D"], st["Target 30D"], st["Search Term 30D"]),
                          ("PRESENTE", "PRESENTE", "MANCANTE", "MANCANTE"))
         self.assertEqual([m["label"] for m in rows[0]["missing"]], ["Target 30D", "Search Term 30D"])
         self.assertFalse(rows[0]["complete"])
 
     def test_complete_set(self):
         self.report("C_EXACT", "TARGETING", "LIFETIME", tcsv(1), "a.csv")
-        self.report("C_EXACT", "SEARCH_TERM", "D65", scsv(1), "b.csv")
+        self.report("C_EXACT", "SEARCH_TERM", "D90", scsv(1), "b.csv")
         self.report("C_EXACT", "TARGETING", "D30", tcsv(2), "c.csv")
         self.report("C_EXACT", "SEARCH_TERM", "D30", scsv(2), "d.csv")
         rows, st = self.status()
@@ -672,12 +673,12 @@ class PageTests(WsBase):
         self.p.state["imp_mode"] = "Importazione settimanale"
         t, _ = self.p.run("8_Importa_report.py")
         allt = "\n".join(t)
-        for need in ("[ ] **Target Lifetime**", "[ ] **Search Term 65D**", "[ ] **Target 30D**", "[ ] **Search Term 30D**", "mancante"):
+        for need in ("[ ] **Target Lifetime**", "[ ] **Search Term 90D**", "[ ] **Target 30D**", "[ ] **Search Term 30D**", "mancante"):
             self.assertTrue(need in allt or any(need in x for x in t), need)
         self.assertNotIn("Set report settimanale completo", allt)
         today = date.today()
         self.report("C_EXACT", "TARGETING", "LIFETIME", tcsv(1), "a.csv", d_to=today)
-        self.report("C_EXACT", "SEARCH_TERM", "D65", scsv(1), "b.csv", d_to=today)
+        self.report("C_EXACT", "SEARCH_TERM", "D90", scsv(1), "b.csv", d_to=today)
         self.report("C_EXACT", "TARGETING", "D30", tcsv(2), "c.csv", d_to=today)
         t, _ = self.p.run("8_Importa_report.py")
         self.assertTrue(any("[ ] **Search Term 30D**" in x for x in t))

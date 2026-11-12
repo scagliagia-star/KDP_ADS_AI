@@ -155,7 +155,7 @@ class MappingTests(unittest.TestCase):
 
     def test_window_run_origin_datetime_labels(self):
         self.assertEqual([U.label_window(x) for x in ("LIFETIME", "RECENT_65D", "RECENT_28D", "RECENT_14D", None)],
-                         ["Storico completo", "Ultimi 65 giorni", "Ultimi 28 giorni", "Ultimi 14 giorni", "n/d"])
+                         ["Storico completo", "Ultimi 65 giorni (legacy)", "Ultimi 28 giorni", "Ultimi 14 giorni", "n/d"])
         self.assertEqual(U.label_run({"run_id": 6, "analysis_run_id": 3, "generated_at": "2026-09-30T21:25:30"}, True),
                          "Run decisionale #6 · Run di analisi #3 · 30/09/2026 21:25:30 · PIÙ RECENTE")
         self.assertEqual(U.label_run({"run_id": 5, "analysis_run_id": 3, "generated_at": "2026-09-30T21:04:53"}),

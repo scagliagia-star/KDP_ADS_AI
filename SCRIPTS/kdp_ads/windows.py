@@ -1,7 +1,9 @@
 """Finestre temporali, periodo tattico e DELIVERY SIGNAL. Funzioni pure sulle raccomandazioni analitiche (rec dict).
 Regole: le finestre non si sommano mai; i confronti sono sempre normalizzati PER GIORNO e solo fra report dello STESSO tipo;
 tutte le soglie stanno in rules.json (snapshots / delivery)."""
-from .snapshots import days_inclusive, period_id as make_period_id, window_role
+from datetime import date, timedelta
+
+from .snapshots import days_inclusive, is_medium_context_days, period_id as make_period_id, window_role
 
 DELIVERY_SIGNALS = ("DELIVERY_INCREASING", "DELIVERY_STABLE", "DELIVERY_DECLINING", "DELIVERY_COLLAPSED", "UNKNOWN")
 RT_ORDER = ("TARGETING", "SEARCH_TERM")
@@ -137,3 +139,22 @@ def delivery_from_rows(rows_by_rt: dict, snaps: dict, tactical_pid: str | None, 
             return sig, ratio, rt, detail, flags
         first_unknown = ("UNKNOWN", None, rt, detail, flags) if first_unknown[2] is None else first_unknown
     return first_unknown
+
+
+CONTEXT_FRESHNESS_DAYS = 7                              # tolleranza di default (rules.json -> snapshots.context_freshness_days)
+
+
+def pick_context(items: list, ref_date_to: str | None, tol_days: int = CONTEXT_FRESHNESS_DAYS):
+    """Sceglie UN contesto intermedio fra snapshot RECENT_CONTEXT (mai somme): items = [(chiave, giorni, date_to)]. Il 90D e' la finestra ufficiale: vince se e' FRESCO, cioe' la sua date_to non e'
+    piu' vecchia di `tol_days` giorni rispetto alla date_to del 30D corrente (`ref_date_to`). Se il 90D e' stale e un altro contesto (es. il 65D LEGACY) e' fresco, si usa temporaneamente
+    quello; appena arriva un 90D fresco si torna al 90D. Senza riferimento tutti contano come freschi. Se nessuno e' fresco vince il piu' recente (a parita' il 90D). None se non ci sono item."""
+    if not items:
+        return None
+    try:
+        limit = (date.fromisoformat(ref_date_to) - timedelta(days=tol_days)).isoformat() if ref_date_to else None
+    except ValueError:
+        limit = None
+    fresh = [i for i in items if limit is None or (i[2] or "") >= limit]
+    if fresh:
+        return max(fresh, key=lambda i: (is_medium_context_days(i[1]), i[2] or "", i[1] or 0))[0]
+    return max(items, key=lambda i: (i[2] or "", is_medium_context_days(i[1]), i[1] or 0))[0]

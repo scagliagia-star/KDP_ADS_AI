@@ -50,7 +50,7 @@ def from_root(root) -> Workspace:
     env_db = os.environ.get("KDP_ADS_DB")
     settings = {
         "read_only": True,        # il progetto resta in sola lettura rispetto ad Amazon
-        "search_term_max_days": cfg.get("search_term_max_days", 65),
+        "search_term_max_days": cfg.get("search_term_max_days", 90),
         "break_even_mismatch_tolerance_pp": cfg.get("break_even_mismatch_tolerance_pp", 0.5),
         "db_path": env_db or str(root / "DATABASE" / "kdp_ads.db"),
         "logs_dir": str(root / "LOGS"),

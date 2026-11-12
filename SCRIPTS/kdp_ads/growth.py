@@ -4,7 +4,7 @@ Term, target esistenti, ASIN osservati). Nessun LLM, nessuna keyword o ASIN inve
 Categorie:
   SCALE            ALZA OFFERTA 5% (scaling MOLTO prudente, solo +5%). Candidato se TUTTO vero:
                    target ATTIVO in HOLD, >= scale_min_hist_orders acquisti storici, ACOS storico <= scale_hist_acos_max_pct_of_target x ACOS obiettivo,
-                   periodo recente valido (30 giorni se ha >= scale_min_recent_orders acquisti, altrimenti 65 giorni) con ACOS <= obiettivo e
+                   periodo recente valido (30 giorni se ha >= scale_min_recent_orders acquisti, altrimenti 90 giorni) con ACOS <= obiettivo e
                    >= scale_min_recent_orders acquisti, nessun periodo recente valido sopra l'obiettivo, nessun periodo recente zero-order (clic senza
                    acquisti), nessun avviso dati che renda il recente inaffidabile, nessuno stato che richieda gia' monitoraggio o riduzione.
                    Le impressioni (stagionali) non entrano MAI nella decisione.
@@ -39,9 +39,9 @@ def _flags(d) -> set:
 
 
 def _recent_for_scaling(d, cfg):
-    """Periodo recente usato: 30 giorni se ha abbastanza acquisti, altrimenti 65 giorni. None se nessuno e' valido."""
+    """Periodo recente usato: 30 giorni se ha abbastanza acquisti, altrimenti 90 giorni. None se nessuno e' valido."""
     need = cfg["scale_min_recent_orders"]
-    for prefix, days in (("tactical", 30), ("recent", 65)):
+    for prefix, days in (("tactical", 30), ("recent", 90)):
         orders, acos = d.get(f"{prefix}_orders"), d.get(f"{prefix}_acos")
         if (orders or 0) >= need and acos is not None:
             return {"days": days, "clicks": d.get(f"{prefix}_clicks"), "orders": orders, "acos": acos}
@@ -79,9 +79,9 @@ def scale_blockers(d, book, cfg, warnings=()) -> list:
     for w in warnings or ():
         text = w.get("text", "") if isinstance(w, dict) else str(w)
         if IMPOSSIBLE in text:
-            # le righe impossibili sono ESCLUSE dai calcoli: il recente del report Target (30 giorni) non e' toccato; il 65 giorni (da Search Term) si'
-            if used and used["days"] == 65 and str(d.get("campaign_id")) in text:
-                why.append("avviso dati: il recente a 65 giorni deriva da Search Term con metriche impossibili")
+            # le righe impossibili sono ESCLUSE dai calcoli: il recente del report Target (30 giorni) non e' toccato; il 90 giorni (da Search Term) si'
+            if used and used["days"] == 90 and str(d.get("campaign_id")) in text:
+                why.append("avviso dati: il recente a 90 giorni deriva da Search Term con metriche impossibili")
                 break
         elif tname and f"'{tname}'" in text or (tname and f'"{tname}"' in text):
             why.append("avviso dati che cita questo target")

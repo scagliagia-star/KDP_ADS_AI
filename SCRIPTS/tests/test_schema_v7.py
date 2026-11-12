@@ -79,7 +79,7 @@ def make_v6(d) -> Path:
     c.execute("PRAGMA foreign_keys=OFF")
     c.execute("PRAGMA legacy_alter_table=ON")                                                              # le REFERENCES delle righe restano su global_report_imports
     c.execute("ALTER TABLE global_report_imports RENAME TO tmp_new")
-    for ix in ("ux_gri_active_v7", "ux_gri_file_mp", "ux_gri_active_v8", "ux_gri_file_mp_v8"):
+    for ix in ("ux_gri_active_v7", "ux_gri_file_mp", "ux_gri_active_v8", "ux_gri_file_mp_v8", "ux_gri_active_v9", "ux_gri_file_mp_v9"):
         c.execute(f"DROP INDEX IF EXISTS {ix}")
     c.executescript(V6_IMPORTS_DDL)
     c.execute("INSERT INTO global_report_imports SELECT gimport_id,report_type,window_label,window_days,date_from,date_to,period_id,marketplace,currency,file_name,file_sha256,imported_at,row_count,"

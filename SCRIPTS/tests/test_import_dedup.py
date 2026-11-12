@@ -112,7 +112,7 @@ class DiscoveryTests(DedupBase):
 class SnapshotDedupTests(DedupBase):
     """Deduplica: book + marketplace + campagna + tipo report + periodo + hash."""
 
-    def commit(self, name, data, rtype="SEARCH_TERM", kind="D65"):
+    def commit(self, name, data, rtype="SEARCH_TERM", kind="D90"):
         period = importing.resolve_period(kind, None, END)
         plan = importing.plan_upload(self.folder, name, data, period)
         entry = importing.build_entry(plan.final_name, rtype, period)
@@ -128,7 +128,7 @@ class SnapshotDedupTests(DedupBase):
 
     def test_same_hash_different_snapshot_is_allowed(self):
         data = td2.scsv()
-        self.assertEqual(self.commit("st.csv", data, kind="D65")[2].status, "IMPORTED")
+        self.assertEqual(self.commit("st.csv", data, kind="D90")[2].status, "IMPORTED")
         plan, dry, out = self.commit("st (3).csv", data, kind="D30")
         self.assertEqual(dry.status, "DRY_RUN_OK")
         self.assertEqual(out.status, "IMPORTED")
@@ -143,7 +143,7 @@ class SnapshotDedupTests(DedupBase):
 
     def test_same_hash_same_name_other_period_gets_own_file(self):
         data = td2.scsv()
-        self.commit("st.csv", data, kind="D65")
+        self.commit("st.csv", data, kind="D90")
         plan, dry, out = self.commit("st.csv", data, kind="D30")
         self.assertEqual((plan.status, plan.final_name, out.status), ("RENAMED", "st__2.csv", "IMPORTED"))
 
@@ -159,7 +159,7 @@ class SnapshotDedupTests(DedupBase):
         p28 = importing.resolve_period("D28", None, END)                                        # vecchi 28D ancora gestiti
         self.assertEqual(p28.date_from, "2026-09-04")
         from ops import weekly
-        self.assertEqual([x[2] for x in weekly.EXPECTED], ["Target Lifetime", "Search Term 65D", "Target 30D", "Search Term 30D"])
+        self.assertEqual([x[2] for x in weekly.EXPECTED], ["Target Lifetime", "Search Term 90D", "Target 30D", "Search Term 30D"])
         self.assertEqual(weekly._kind({"report_scope": "DATE_RANGE", "date_from": "2026-09-04", "date_to": "2026-10-01"}), "D28")
         from kdp_ads.snapshots import window_label, window_role
         self.assertEqual(window_label("DATE_RANGE", "2026-09-02", "2026-10-01"), "RECENT_30D")
@@ -189,7 +189,7 @@ class SnapshotDedupTests(DedupBase):
         self.commit("t30.csv", td2.tcsv(), rtype="TARGETING", kind="D30")
         row = weekly.checklist(self.ws, "B0TEST0001", END)[0]
         self.assertEqual({i["label"]: i["status"] for i in row["items"]},
-                         {"Target Lifetime": "MANCANTE", "Search Term 65D": "MANCANTE", "Target 30D": "PRESENTE", "Search Term 30D": "MANCANTE"})
+                         {"Target Lifetime": "MANCANTE", "Search Term 90D": "MANCANTE", "Target 30D": "PRESENTE", "Search Term 30D": "MANCANTE"})
 
 
 try:
@@ -237,7 +237,7 @@ class PeriodStateTests(DedupBase):
         self.run_flow("D30", "2026-09-02__2026-10-01")
 
     def test_period_choices_offer_30d_not_28d(self):
-        self.assertEqual([o for o in self.at.selectbox(key="imp_period").options], ["Storico completo (LIFETIME)", "Ultimi 65 giorni", "Ultimi 30 giorni", "Ultimi 7 giorni (solo trend)", "Intervallo personalizzato"])
+        self.assertEqual([o for o in self.at.selectbox(key="imp_period").options], ["Storico completo (LIFETIME)", "Ultimi 90 giorni (contesto intermedio)", "Ultimi 30 giorni", "Ultimi 7 giorni (solo trend)", "Intervallo personalizzato"])
 
     def test_weekly_prefill_then_manual_lifetime(self):
         at = self.at
@@ -260,7 +260,7 @@ if __name__ == "__main__":
 class SameContentWarningTests(DedupBase):
     CODE = "SAME_CONTENT_DIFFERENT_PERIOD"
 
-    def commit(self, name, data, rtype="SEARCH_TERM", kind="D65"):
+    def commit(self, name, data, rtype="SEARCH_TERM", kind="D90"):
         period = importing.resolve_period(kind, None, END)
         plan = importing.plan_upload(self.folder, name, data, period)
         entry = importing.build_entry(plan.final_name, rtype, period)
@@ -269,7 +269,7 @@ class SameContentWarningTests(DedupBase):
 
     def two_periods(self):
         data = td2.scsv()
-        self.commit("a.csv", data, kind="D65")
+        self.commit("a.csv", data, kind="D90")
         return data, self.commit("a (3).csv", data, kind="D30")
 
     def test_different_period_allowed_with_structured_warning(self):
@@ -288,8 +288,8 @@ class SameContentWarningTests(DedupBase):
 
     def test_same_period_is_skipped_without_warning(self):
         data = td2.scsv()
-        self.commit("a.csv", data, kind="D65")
-        dry, out = self.commit("a (1).csv", data, kind="D65")
+        self.commit("a.csv", data, kind="D90")
+        dry, out = self.commit("a (1).csv", data, kind="D90")
         self.assertEqual((dry.status, out), ("SKIPPED_DUPLICATE", None))
         self.assertFalse(any(self.CODE in w for w in dry.warnings))
 
@@ -327,7 +327,7 @@ class SameContentWarningTests(DedupBase):
 
     def test_no_warning_without_same_content(self):
         from ops import pipeline_ops
-        self.commit("a.csv", td2.scsv(), kind="D65")
+        self.commit("a.csv", td2.scsv(), kind="D90")
         self.commit("b.csv", td2.scsv(4), kind="D30")
         a = pipeline_ops.run_book_analysis(self.ws, "B0TEST0001", "US")
         c = self.db()
@@ -337,7 +337,7 @@ class SameContentWarningTests(DedupBase):
 
     def test_historical_runs_unchanged(self):
         from ops import pipeline_ops
-        self.commit("a.csv", td2.scsv(), kind="D65")
+        self.commit("a.csv", td2.scsv(), kind="D90")
         a1 = pipeline_ops.run_book_analysis(self.ws, "B0TEST0001", "US")
         c = self.db()
         before = c.execute("SELECT run_id, warnings_json, row_count FROM analysis_runs").fetchall()

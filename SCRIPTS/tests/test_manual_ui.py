@@ -166,7 +166,7 @@ class ReportsPageNoteTests(tg.WsBase):
             at = AppTest.from_file(P13, default_timeout=120).run()
             self.assertFalse(at.exception, at.exception)
             txt = "\n".join([i.value for i in at.info] + [m.value for m in at.markdown] + [c.value for c in at.caption])
-            for s in ("Ogni settimana", "Targeting 7D", "Search Term 65D", "Ogni mese", "Targeting Lifetime", "finestre di SUPPORTO", "non si blocca"):
+            for s in ("Ogni settimana", "Targeting 7D", "Search Term 90D", "Ogni mese", "Targeting Lifetime", "finestre di SUPPORTO", "non si blocca"):
                 self.assertIn(s, txt)
             self.assertEqual(len(at.get("file_uploader")), 6)
         finally:

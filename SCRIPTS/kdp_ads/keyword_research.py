@@ -1,6 +1,6 @@
 """RICERCA KEYWORD / COMPETITOR: riconoscimento automatico del formato (Publisher Rocket / Helium 10 Cerebro), unione delle evidenze per keyword e PIANO KEYWORD di lancio.
 Modulo PURO e LOCALE: legge byte in memoria, nessuna rete, nessuna scrittura (il salvataggio nel progetto e' in competitor_store / DASHBOARD/ops/competitor_ops.py), nessun accesso
-al DB Ads ne' a books.json. I dati sono FONTI ESTERNE/STIMATE: NON entrano mai nelle decisioni 7D/30D/65D/Lifetime delle campagne esistenti (due pipeline distinte) e NON creano
+al DB Ads ne' a books.json. I dati sono FONTI ESTERNE/STIMATE: NON entrano mai nelle decisioni 7D/30D/90D/Lifetime delle campagne esistenti (due pipeline distinte) e NON creano
 campagne Amazon: il piano e' una PROPOSTA MANUALE, PHRASE-first.
 
 RICONOSCIMENTO (l'utente non sceglie il formato). Cerebro: la riga di intestazione contiene almeno Keyword Phrase + Search Volume + Organic Rank (meglio se anche Cerebro IQ Score e

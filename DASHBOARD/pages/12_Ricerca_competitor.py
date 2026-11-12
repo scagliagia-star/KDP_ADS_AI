@@ -130,7 +130,7 @@ else:
         with tabs[0]:
             res = a["research"]
             sm = res["summary"]
-            st.markdown("**PIANO KEYWORD DI LANCIO** — proposta MANUALE, PHRASE-first: nessuna campagna Amazon viene creata e nessuna decisione 7D/30D/65D/Lifetime cambia. "
+            st.markdown("**PIANO KEYWORD DI LANCIO** — proposta MANUALE, PHRASE-first: nessuna campagna Amazon viene creata e nessuna decisione 7D/30D/90D/Lifetime cambia. "
                         "Il Search Volume è un segnale, non la decisione: una keyword con volume basso ma presente su più competitor con rank forti può contare più di una generica molto cercata.")
             st.markdown(f"**{sm['cerebro_competitors']} competitor Cerebro** · {sm['unique_keywords']} keyword uniche · {sm['at_least_2']} presenti su almeno 2 competitor · "
                         f"{sm['at_least_3']} presenti su almeno 3 competitor" + (f" · {sm['rocket_files']} file Publisher Rocket ({sm['both_sources']} keyword in entrambe le fonti)" if sm["rocket_files"] else ""))

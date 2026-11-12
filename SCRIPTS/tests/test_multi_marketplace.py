@@ -70,11 +70,11 @@ class MBase(td2.WsBase):
     def fill_us_uk_data(self):
         """Stessi numeri in US e UK (cosi' si vede che solo la VALUTA/economia del marketplace cambia l'esito)."""
         self.rep("US_EXACT", "TARGETING", "LIFETIME", tgt(), "ut.csv")
-        self.rep("US_EXACT", "SEARCH_TERM", "D65", st(), "us.csv")
+        self.rep("US_EXACT", "SEARCH_TERM", "D90", st(), "us.csv")
         self.rep("US_PHRASE", "TARGETING", "LIFETIME", td2.tr.it_rows_target([("kw frase", 200, 30, 100, 800)]).encode(), "pt.csv")
-        self.rep("US_PHRASE", "SEARCH_TERM", "D65", td2.tr.it_rows_st([("kw uno", "kw frase", 100, 20, 60, 400)]).encode(), "ps.csv")
+        self.rep("US_PHRASE", "SEARCH_TERM", "D90", td2.tr.it_rows_st([("kw uno", "kw frase", 100, 20, 60, 400)]).encode(), "ps.csv")
         self.rep("UK_EXACT", "TARGETING", "LIFETIME", tgt(uk=True), "kt.csv")
-        self.rep("UK_EXACT", "SEARCH_TERM", "D65", st(uk=True), "ks.csv")
+        self.rep("UK_EXACT", "SEARCH_TERM", "D90", st(uk=True), "ks.csv")
 
     def analysis(self, mp):
         return analyze_book(self.db_conn(), self.ws.settings, self.ws.mapping, self.ws.rules_path, BID, self._lg(), mp)
@@ -232,7 +232,7 @@ class WeeklyTests(MBase):
 
     def four(self, cid, uk, base):
         self.rep(cid, "TARGETING", "LIFETIME", tgt(base, uk), f"{cid}a.csv")
-        self.rep(cid, "SEARCH_TERM", "D65", st(base, uk), f"{cid}b.csv")
+        self.rep(cid, "SEARCH_TERM", "D90", st(base, uk), f"{cid}b.csv")
         self.rep(cid, "TARGETING", "D30", tgt(base + 1, uk), f"{cid}c.csv")
         self.rep(cid, "SEARCH_TERM", "D30", st(base + 1, uk), f"{cid}d.csv")
 

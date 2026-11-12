@@ -265,7 +265,7 @@ OPP_NEW_CAMPAIGN = "Valuta creazione campagna EXACT"
 OPP_NEW_CAMPAIGN_TEXT = ("Ci sono almeno {n} termini di ricerca unici da promuovere in EXACT provenienti da PHRASE/Auto e in questo marketplace non esiste "
                          "una campagna EXACT. Suggerimento strutturale, non operativo: nessuna campagna viene creata.")
 OPP_AGREEMENT_LABELS = {"CONCORDI": "Finestre concordi", "DISCORDI": "Finestre discordanti", "SOLO_UNA_FINESTRA": "Una sola finestra",
-                        "SOLO_65D": "Solo 65 giorni (30 giorni non importato)", "NON_CONFERMATO_30D": "Non confermato negli ultimi 30 giorni",
+                        "SOLO_90D": "Solo 90 giorni (30 giorni non importato)", "NON_CONFERMATO_30D": "Non confermato negli ultimi 30 giorni",
                         "ASSENTE_30D": "Nessuna attività negli ultimi 30 giorni"}
 OPP_FLAG_LABELS = {"OUT_OF_INTENT": "Fuori intento per promozione", "AUTO_STRONG_WINNER": "Vincitore AUTO forte", "AUTO_MODERATE_WINNER": "Vincitore AUTO moderato",
                    "ALREADY_IN_EXACT": "Già in EXACT", "EXACT_PAUSED": "Keyword EXACT in pausa", "DUPLICATE_ACROSS_CAMPAIGNS": "Presente in più campagne",
@@ -276,12 +276,12 @@ OPP_FLAG_LABELS = {"OUT_OF_INTENT": "Fuori intento per promozione", "AUTO_STRONG
 OPP_NEGATIVE_TYPE_NOTE = "Il tipo di negativa (exact o phrase) non è deciso."
 # ------------------------------------------------------------------ Report globali Amazon Ads (4 CSV -> smistamento per libro)
 GLOBAL_PAGE_TITLE = "Report globali Amazon Ads"
-GLOBAL_INTRO = ("**Nuovo flusso consigliato.** Carica i report globali di Amazon Ads: Targeting 7D, 30D e Lifetime, Search Term 7D, 30D e 65D. Ogni file contiene "
+GLOBAL_INTRO = ("**Nuovo flusso consigliato.** Carica i report globali di Amazon Ads: Targeting 7D, 30D e Lifetime, Search Term 7D, 30D e 90D. Ogni file contiene "
                 "molte campagne e molti libri: l'app riconosce le campagne dall'ID Amazon e smista i dati per libro. Le campagne nuove non bloccano l'import: restano in "
                 "«Campagne da associare».")
-GLOBAL_FREQ_NOTE = ("**Frequenza consigliata.** Ogni settimana: Targeting 7D, Targeting 30D, Search Term 7D, Search Term 30D, Search Term 65D. "
-                    "Ogni mese: Targeting Lifetime. Search Term 65D e Targeting Lifetime sono finestre di SUPPORTO (contesto e storico): se mancano l'import non si blocca. "
-                    "Il 30D resta la finestra decisionale; il 7D conferma o smentisce; il 65D distingue un calo temporaneo da un problema persistente; il Lifetime è memoria storica.")
+GLOBAL_FREQ_NOTE = ("**Frequenza consigliata.** Ogni settimana: Targeting 7D, Targeting 30D, Search Term 7D, Search Term 30D, Search Term 90D. "
+                    "Ogni mese: Targeting Lifetime. Search Term 90D e Targeting Lifetime sono finestre di SUPPORTO (contesto e storico): se mancano l'import non si blocca. "
+                    "Il 30D resta la finestra decisionale; il 7D conferma o smentisce; il 90D distingue un calo temporaneo da un problema persistente; il Lifetime è memoria storica.")
 GLOBAL_NO_ACTIONS = ("Solo analisi e supporto alle decisioni: nessuna azione viene eseguita su Amazon Ads (bid, pause, keyword e negative restano modifiche manuali).")
 GLOBAL_LEGACY_LINK = "Import legacy (un file per campagna): vai a «Importa report»"
 GLOBAL_SLOTS_HEADER = "REPORT GLOBALI AMAZON ADS"
@@ -457,14 +457,14 @@ def label_yesno(v):
 
 
 def label_window(v):
-    """LIFETIME -> 'Storico completo'; RECENT_65D -> 'Ultimi 65 giorni' (qualunque numero di giorni)."""
+    """LIFETIME -> 'Storico completo'; RECENT_90D -> 'Ultimi 90 giorni' (qualunque numero di giorni)."""
     if v in (None, ""):
         return ND
     if v == "LIFETIME":
         return "Storico completo"
     m = re.fullmatch(r"RECENT_(\d+)D", str(v))
     if m:
-        return f"Ultimi {m.group(1)} giorni"
+        return f"Ultimi {m.group(1)} giorni" + (" (legacy)" if m.group(1) == "65" else "")        # 65 giorni = finestra LEGACY gia' importata (solo lettura)
     return "Non disponibile" if v == "UNKNOWN" else str(v)
 
 
@@ -608,7 +608,7 @@ COMP_SOURCE = "Fonte esterna: Helium 10 Cerebro"
 COMP_PAGE_SOURCE = "Fonte esterna: Publisher Rocket / Helium 10 Cerebro"
 COMP_BADGE = "HELIUM 10 / FONTE ESTERNA"
 COMP_INTRO = ("Carica uno o più export Publisher Rocket o Helium 10 Cerebro. L'app riconosce automaticamente il formato e combina le evidenze senza modificare Amazon Ads. "
-              "I dati sono stime esterne: non sono ordini, clic, ACOS o vendite del tuo account Amazon Ads, non entrano nelle decisioni 7D/30D/65D/Lifetime delle campagne esistenti "
+              "I dati sono stime esterne: non sono ordini, clic, ACOS o vendite del tuo account Amazon Ads, non entrano nelle decisioni 7D/30D/90D/Lifetime delle campagne esistenti "
               "e non diventano mai Exact, negative, cambi di offerta o pause. Producono solo proposte manuali di ricerca e di lancio (PHRASE-first) e cluster editoriali DA APPROFONDIRE.")
 COMP_FORMATS_NOTE = ("Formati: Helium 10 Cerebro = CSV supportato (un export XLSX Cerebro viene riconosciuto ma al momento non è importabile: esportalo in CSV). "
                      "Publisher Rocket = CSV/XLSX/XLS; in questa pagina vale solo per la sessione: per salvarlo usa la bozza di «Lancio nuovo libro».")

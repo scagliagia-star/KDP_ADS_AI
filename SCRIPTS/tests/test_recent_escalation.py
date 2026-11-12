@@ -1,4 +1,4 @@
-"""FINESTRE DI SOSTEGNO (Search Term 65D, Targeting Lifetime) ed ESCALATION RECENTE sui casi reali: 7D = conferma, 30D = finestra decisionale, 65D = contesto, Lifetime = memoria.
+"""FINESTRE DI SOSTEGNO (Search Term 90D, Targeting Lifetime) ed ESCALATION RECENTE sui casi reali: 7D = conferma, 30D = finestra decisionale, 90D = contesto, Lifetime = memoria.
 Fixture sintetiche basate sui pattern reali (Rare Coins, Route 66, Twenty Women), flusso globale completo (import -> associazione -> analisi -> decisioni) in un workspace
 temporaneo: mai il DB reale, mai books.json reale, nessuna rete, nessuna Amazon."""
 import json
@@ -24,7 +24,7 @@ from kdp_ads.rules import BookCtx, load_rules
 from ops import global_import as GI
 
 RANGE30, RANGE7 = tg.RANGE30, tg.RANGE7
-RANGE65 = "10 ago 2026 - 13 ott 2026"                  # 65 giorni
+RANGE90 = "16 lug 2026 - 13 ott 2026"                  # 90 giorni (contesto intermedio)
 RANGE_LIFE = "1 gen 2025 - 13 ott 2026"
 BOOK_RC, BOOK_R66, BOOK_TW = tg.BOOK_B, tg.BOOK_A, "B0TWENTYWM"                       # Rare Coins (royalty 11, pareggio 45,85%), Route 66 (9, 39,15%), Twenty Women (8, 40,02%)
 BOOKS = {"books": tg.BOOKS["books"] + [{"book_id": BOOK_TW, "title": "Twenty Women Workouts Over 50", "active": True,
@@ -51,7 +51,7 @@ def targeting(rng, rows):
     return tg.csv_text(tg.TG_HEAD, rows)
 
 
-def files(life=False, c65=False, w7=True):
+def files(life=False, c90=False, w7=True):
     """Report globali del caso reale. Dati: A) Rare Coins 'coin books for collectors' 18 clic/17,59/0 ordini (7D: 9/8,59/0); B) ASIN 0794851630 target 30D 130 clic, 5 acquisti, 84,00 spesa,
     118,00 vendite (ACOS 71%), 7D 14 clic 0 acquisti, mentre il Search Term dell'ASIN mostra 32 clic/3 acquisti/ACOS 32%; C) Route 66 'route 66 map' storico fortissimo, 30D 14 clic/0 ordini;
     D) Twenty Women: acquisti ma ACOS 56% (F: stesso quadro ma con un Lifetime forte); E) lo stesso quadro di A su un target GIA' IN PAUSA."""
@@ -67,10 +67,10 @@ def files(life=False, c65=False, w7=True):
     out = {"TARGETING_30D": ("t30.csv", targeting(RANGE30, t30)), "SEARCH_TERM_30D": ("s30.csv", tg.csv_text(tg.ST_HEAD, s30))}
     if w7:
         out["TARGETING_7D"] = ("t7.csv", targeting(RANGE7, t7))
-    if c65:
-        s65 = [strow(C_RC, T_COLLECT, T_COLLECT, "PHRASE", "2101", 30, 0, 28.0, 0.0, RANGE65), strow(C_TW, T_TW1, T_TW1, "PHRASE", "3001", 100, 8, 80.0, 400.0, RANGE65),
-               strow(C_TW, T_TW2, T_TW2, "PHRASE", "3002", 60, 5, 50.0, 130.0, RANGE65)]
-        out["SEARCH_TERM_65D"] = ("s65.csv", tg.csv_text(tg.ST_HEAD, s65))
+    if c90:
+        s90 = [strow(C_RC, T_COLLECT, T_COLLECT, "PHRASE", "2101", 30, 0, 28.0, 0.0, RANGE90), strow(C_TW, T_TW1, T_TW1, "PHRASE", "3001", 100, 8, 80.0, 400.0, RANGE90),
+               strow(C_TW, T_TW2, T_TW2, "PHRASE", "3002", 60, 5, 50.0, 130.0, RANGE90)]
+        out["SEARCH_TERM_90D"] = ("s90.csv", tg.csv_text(tg.ST_HEAD, s90))
     if life:
         tl = [tgr(C_R66, T_MAP, "EXACT", "1006", 80, 8, 50.0, 183.92, RANGE_LIFE), tgr(C_TW, T_TW2, "PHRASE", "3002", 200, 12, 100.0, 400.0, RANGE_LIFE),
               tgr(C_RC2, T_PAUSED, "PHRASE", "2201", 40, 3, 30.0, 100.0, RANGE_LIFE, state="ENABLED")]       # il Lifetime (mensile) dice ABILITATO, il 30D/7D piu' recenti dicono IN PAUSA
@@ -80,7 +80,7 @@ def files(life=False, c65=False, w7=True):
 
 class Scenario(unittest.TestCase):
     """Un solo workspace per classe: import + associazione + analisi + decisioni (lento)."""
-    LIFE, C65 = False, False
+    LIFE, C90 = False, False
 
     @classmethod
     def setUpClass(cls):
@@ -88,7 +88,7 @@ class Scenario(unittest.TestCase):
         cls.base.setUp()
         cls.ws, cls.root = cls.base.ws, cls.base.root
         (cls.root / "CONFIG" / "books.json").write_text(json.dumps(BOOKS), encoding="utf-8")
-        cls.imp = GI.run_import(cls.ws, files(cls.LIFE, cls.C65), None, recalc=False)
+        cls.imp = GI.run_import(cls.ws, files(cls.LIFE, cls.C90), None, recalc=False)
         assert cls.imp.ok, cls.imp.errors
         for cid, book in (("555000111222333", BOOK_RC), ("555000111222555", BOOK_RC), ("555000111222444", BOOK_RC), ("12345678901234567890", BOOK_R66), ("777000111222333", BOOK_TW)):
             r = GI.associate(cls.ws, cid, book, recalc=False)
@@ -109,24 +109,24 @@ class Scenario(unittest.TestCase):
         return rows[0]
 
 
-# ------------------------------------------------------------------ import 65D / Lifetime
+# ------------------------------------------------------------------ import 90D / Lifetime
 class SupportWindowImportTests(Scenario):
-    LIFE, C65 = True, True
+    LIFE, C90 = True, True
 
-    def test_65d_and_lifetime_slots_exist_and_the_six_global_files_import(self):
-        self.assertEqual(set(GS.SLOTS), {"TARGETING_7D", "TARGETING_30D", "TARGETING_LIFETIME", "SEARCH_TERM_7D", "SEARCH_TERM_30D", "SEARCH_TERM_65D"})
-        self.assertEqual(GS.SLOTS["SEARCH_TERM_65D"], ("SEARCH_TERM", "RECENT_65D"))
+    def test_90d_and_lifetime_slots_exist_and_the_six_global_files_import(self):
+        self.assertEqual(set(GS.SLOTS), {"TARGETING_7D", "TARGETING_30D", "TARGETING_LIFETIME", "SEARCH_TERM_7D", "SEARCH_TERM_30D", "SEARCH_TERM_90D"})
+        self.assertEqual(GS.SLOTS["SEARCH_TERM_90D"], ("SEARCH_TERM", "RECENT_90D"))
         self.assertEqual(GS.SLOTS["TARGETING_LIFETIME"], ("TARGETING", "LIFETIME"))
         self.assertTrue(self.imp.ok)
         labels = {(r["report_type"], r["window_label"]) for r in self.q("SELECT report_type, window_label FROM global_report_imports")}
-        self.assertEqual(labels, {("TARGETING", "RECENT_30D"), ("TARGETING", "RECENT_7D"), ("TARGETING", "LIFETIME"), ("SEARCH_TERM", "RECENT_30D"), ("SEARCH_TERM", "RECENT_65D")})
+        self.assertEqual(labels, {("TARGETING", "RECENT_30D"), ("TARGETING", "RECENT_7D"), ("TARGETING", "LIFETIME"), ("SEARCH_TERM", "RECENT_30D"), ("SEARCH_TERM", "RECENT_90D")})
 
-    def test_65d_snapshot_dates_and_materialization(self):
-        g = self.q("SELECT * FROM global_report_imports WHERE window_label='RECENT_65D'")[0]
-        self.assertEqual((g["window_days"], g["date_from"], g["date_to"], g["period_id"]), (65, "2026-08-10", "2026-10-13", "2026-08-10__2026-10-13"))
-        rows = self.q("SELECT report_scope, date_from, date_to, period_id FROM search_term_rows WHERE period_id='2026-08-10__2026-10-13'")
+    def test_90d_snapshot_dates_and_materialization(self):
+        g = self.q("SELECT * FROM global_report_imports WHERE window_label='RECENT_90D'")[0]
+        self.assertEqual((g["window_days"], g["date_from"], g["date_to"], g["period_id"]), (90, "2026-07-16", "2026-10-13", "2026-07-16__2026-10-13"))
+        rows = self.q("SELECT report_scope, date_from, date_to, period_id FROM search_term_rows WHERE period_id='2026-07-16__2026-10-13'")
         self.assertTrue(rows)
-        self.assertEqual({(r["report_scope"], r["date_from"], r["date_to"]) for r in rows}, {("DATE_RANGE", "2026-08-10", "2026-10-13")})
+        self.assertEqual({(r["report_scope"], r["date_from"], r["date_to"]) for r in rows}, {("DATE_RANGE", "2026-07-16", "2026-10-13")})
 
     def test_lifetime_is_stored_as_report_scope_lifetime_without_a_start_date(self):
         g = self.q("SELECT * FROM global_report_imports WHERE window_label='LIFETIME'")[0]
@@ -135,10 +135,10 @@ class SupportWindowImportTests(Scenario):
         self.assertEqual({(r["report_scope"], r["date_from"], r["date_to"], r["period_id"]) for r in rows}, {("LIFETIME", None, "2026-10-13", "LIFETIME__2026-10-13")})
         self.assertTrue(all(r["amazon_campaign_id"] for r in rows))
 
-    def test_65d_does_not_duplicate_or_replace_the_30d_and_the_30d_stays_the_decisional_window(self):
+    def test_90d_does_not_duplicate_or_replace_the_30d_and_the_30d_stays_the_decisional_window(self):
         d = self.decision(BOOK_TW, T_TW1)
         self.assertEqual(d["tactical_window"], "RECENT_30D")                          # il 30D resta la finestra decisionale primaria
-        self.assertEqual(d["recent_window"], "RECENT_65D")                            # il 65D e' il contesto intermedio
+        self.assertEqual(d["recent_window"], "RECENT_90D")                            # il 90D e' il contesto intermedio
         self.assertEqual((d["tactical_clicks"], d["recent_clicks"]), (40.0, 100.0))   # due snapshot distinti, mai sommati
         self.assertEqual(self.q("SELECT COUNT(*) n FROM search_term_rows WHERE search_term=? AND period_id='2026-09-14__2026-10-13'", T_TW1)[0]["n"], 1)
 
@@ -155,15 +155,15 @@ class SupportWindowImportTests(Scenario):
             r = GI.run_import(base.ws, files(False, False), None, recalc=False)
             self.assertTrue(r.ok, r.errors)
             self.assertEqual(r.data["imported"], 3)
-            self.assertEqual(GS.SUPPORT_SLOTS, ("SEARCH_TERM_65D", "TARGETING_LIFETIME"))
+            self.assertEqual(GS.SUPPORT_SLOTS, ("SEARCH_TERM_90D", "TARGETING_LIFETIME"))
         finally:
             base.tearDown()
 
     def test_slot_type_is_checked_for_the_new_slots(self):
-        p = G.parse_global_report("a.csv", files(False, True)["SEARCH_TERM_65D"][1])
+        p = G.parse_global_report("a.csv", files(False, True)["SEARCH_TERM_90D"][1])
         c = self.base.db()
         try:
-            pv = GS.preview_file(c, p, "RECENT_65D", registry.load_books(self.ws.books_path), None, None, "TARGETING_LIFETIME")
+            pv = GS.preview_file(c, p, "RECENT_90D", registry.load_books(self.ws.books_path), None, None, "TARGETING_LIFETIME")
         finally:
             c.close()
         self.assertTrue(any("Targeting Lifetime" in x for x in pv["problems"]))
@@ -171,11 +171,11 @@ class SupportWindowImportTests(Scenario):
 
 # ------------------------------------------------------------------ casi reali: escalation 0 ordini / product winner / pausa
 class RealCasesTests(Scenario):
-    LIFE, C65 = False, False
+    LIFE, C90 = False, False
 
-    def test_a_rare_coins_zero_orders_18_clicks_without_65d_is_minus_10_not_monitoring_and_not_a_pause(self):
+    def test_a_rare_coins_zero_orders_18_clicks_without_90d_is_minus_10_not_monitoring_and_not_a_pause(self):
         d = self.decision(BOOK_RC, T_COLLECT)
-        self.assertEqual(d["final_action"], "BID_DOWN_10_CANDIDATE")                       # 15-19 clic, 7D conferma, nessun 65D: scala graduale, pausa non sbloccata
+        self.assertEqual(d["final_action"], "BID_DOWN_10_CANDIDATE")                       # 15-19 clic, 7D conferma, nessun 90D: scala graduale, pausa non sbloccata
         self.assertEqual(d["decision_rule"], "R1_RECENT_ZERO_ORDER_ESCALATION")
         self.assertEqual(d["operationally_actionable"], 1)
 
@@ -244,7 +244,7 @@ class RealCasesTests(Scenario):
 
 
 class LifetimeAndContextTests(Scenario):
-    LIFE, C65 = True, True
+    LIFE, C90 = True, True
 
     def test_c_route_66_with_strong_lifetime_gets_a_prudent_cut_never_a_pause(self):
         d = self.decision(BOOK_R66, T_MAP)
@@ -252,10 +252,10 @@ class LifetimeAndContextTests(Scenario):
         self.assertEqual((d["final_action"], d["decision_rule"]), ("BID_DOWN_5_CANDIDATE", "R1_RECENT_ZERO_ORDER_ESCALATION"))
         self.assertEqual(d["operationally_actionable"], 1)
 
-    def test_a_rare_coins_with_a_real_65d_that_confirms_unlocks_the_pause(self):
-        d = self.decision(BOOK_RC, T_COLLECT)                 # 18 clic, 0 acquisti nel 30D + 65D con 30 clic e 0 acquisti
+    def test_a_rare_coins_with_a_real_90d_that_confirms_unlocks_the_pause(self):
+        d = self.decision(BOOK_RC, T_COLLECT)                 # 18 clic, 0 acquisti nel 30D + 90D con 30 clic e 0 acquisti
         self.assertEqual((d["final_action"], d["decision_rule"]), ("PAUSE_CANDIDATE", "R1P_RECENT_ZERO_ORDER_PAUSE"))
-        self.assertIn("65D conferma un problema persistente", d["reason"])
+        self.assertIn("90D conferma un problema persistente", d["reason"])
 
     def test_lifetime_does_not_override_a_confirmed_recent_decline(self):
         with_life = self.decision(BOOK_TW, T_TW2)           # Lifetime fortissimo: 12 acquisti, ACOS 25%
@@ -270,18 +270,18 @@ class LifetimeAndContextTests(Scenario):
         self.assertEqual(self.q("SELECT COUNT(*) n FROM target_rows WHERE report_scope='LIFETIME' AND target=?", T_PAUSED)[0]["n"], 1)
         self.assertEqual((d["target_status"], d["final_action"], d["operationally_actionable"]), ("PAUSED", "HOLD_PAUSED_TARGET", 0))        # nessuna nuova PAUSA proposta
 
-    def test_65d_confirms_a_persistent_problem_but_never_acts_alone(self):
+    def test_90d_confirms_a_persistent_problem_but_never_acts_alone(self):
         d = self.decision(BOOK_RC, T_COLLECT)
-        self.assertEqual(d["recent_window"], "RECENT_65D")
+        self.assertEqual(d["recent_window"], "RECENT_90D")
         self.assertEqual((d["tactical_clicks"], d["recent_clicks"]), (18.0, 30.0))
-        self.assertIn("65D conferma un problema persistente", d["reason"])
-        # senza i dati 30D/7D il solo 65D non produce nessuna escalation (verificato a livello di funzione pura qui sotto)
+        self.assertIn("90D conferma un problema persistente", d["reason"])
+        # senza i dati 30D/7D il solo 90D non produce nessuna escalation (verificato a livello di funzione pura qui sotto)
 
-    def test_65d_good_means_temporary_dip_and_never_a_pause(self):
-        d = self.decision(BOOK_TW, T_TW1)                    # 30D ACOS 56%, ma 65D ottimo (8 acquisti, ACOS 15%): calo temporaneo
+    def test_90d_good_means_temporary_dip_and_never_a_pause(self):
+        d = self.decision(BOOK_TW, T_TW1)                    # 30D ACOS 56%, ma 90D ottimo (8 acquisti, ACOS 15%): calo temporaneo
         self.assertTrue(d["final_action"].startswith("BID_DOWN"), d["final_action"])
         self.assertNotIn(d["final_action"], ("PAUSE_CANDIDATE", "BID_DOWN_15_CANDIDATE"))
-        self.assertEqual(d["recent_window"], "RECENT_65D")
+        self.assertEqual(d["recent_window"], "RECENT_90D")
 
 
 # ------------------------------------------------------------------ funzioni pure
@@ -305,10 +305,10 @@ class EscalationUnitTests(unittest.TestCase):
         self.assertEqual(self.ev(self.m(14, 0, 40.0), m7=self.m(6, 0, 4.0))["step"], 5)         # la spesa alta non salta la scala
         b = self.ev(self.m(16, 0, 20.0), m7=self.m(6, 0, 4.0))
         self.assertEqual((b["step"], b["rule"]), (10, "R1_RECENT_ZERO_ORDER_ESCALATION"))        # 15-19 clic: -10%
-        self.assertEqual(self.ev(self.m(18, 0, 17.59), m7=self.m(9, 0, 8.59))["step"], 10)      # senza 65D la pausa NON e' sbloccata
+        self.assertEqual(self.ev(self.m(18, 0, 17.59), m7=self.m(9, 0, 8.59))["step"], 10)      # senza 90D la pausa NON e' sbloccata
         w = self.ev(self.m(24, 0, 30.0), m7=self.m(9, 0, 8.59))
         self.assertEqual(w["step"], 10)                                                          # nemmeno con 20+ clic
-        self.assertIn("manca la conferma del 65D", w["logic"])
+        self.assertIn("manca la conferma del 90D", w["logic"])
 
     def test_the_7d_must_confirm(self):
         T = self.m(18, 0, 17.59)
@@ -318,25 +318,25 @@ class EscalationUnitTests(unittest.TestCase):
 
     def test_strong_history_caps_the_step_and_forbids_the_pause(self):
         L = self.m(80, 8, 50.0, 183.92)                                                          # ACOS 27%, 8 acquisti
-        bad65 = self.m(40, 0, 40.0, 0.0)
+        bad90 = self.m(40, 0, 40.0, 0.0)
         self.assertEqual(self.ev(self.m(14, 0, 15.0), L=L, m7=self.m(9, 0, 8.59))["step"], 5)   # 10-14 clic: -5%
         self.assertEqual(self.ev(self.m(18, 0, 17.59), L=L, m7=self.m(9, 0, 8.59))["step"], 10)
-        self.assertEqual(self.ev(self.m(24, 0, 30.0), L=L, C=bad65, m7=self.m(9, 0, 8.59))["step"], 10)      # anche con 65D che conferma: storico forte => mai pausa
-        weak = self.ev(self.m(24, 0, 30.0), L=self.m(30, 1, 40.0, 22.0), C=bad65, m7=self.m(9, 0, 8.59))
-        self.assertEqual(weak["step"], 100)                                                      # storico non forte + 65D che conferma: pausa sbloccata
+        self.assertEqual(self.ev(self.m(24, 0, 30.0), L=L, C=bad90, m7=self.m(9, 0, 8.59))["step"], 10)      # anche con 90D che conferma: storico forte => mai pausa
+        weak = self.ev(self.m(24, 0, 30.0), L=self.m(30, 1, 40.0, 22.0), C=bad90, m7=self.m(9, 0, 8.59))
+        self.assertEqual(weak["step"], 100)                                                      # storico non forte + 90D che conferma: pausa sbloccata
 
-    def test_65d_context_persistent_vs_temporary_vs_missing(self):
+    def test_90d_context_persistent_vs_temporary_vs_missing(self):
         T, m7 = self.m(18, 0, 17.59), self.m(9, 0, 8.59)
-        good65 = self.m(60, 6, 50.0, 220.0)                                                      # ACOS 22,7%, 6 acquisti: calo temporaneo
-        bad65 = self.m(40, 0, 40.0, 0.0)
-        self.assertEqual(ESC.context_state(good65, self.CTX, self.CFG), "TEMPORARY")
-        self.assertEqual(ESC.context_state(bad65, self.CTX, self.CFG), "PERSISTENT")
+        good90 = self.m(60, 6, 50.0, 220.0)                                                      # ACOS 22,7%, 6 acquisti: calo temporaneo
+        bad90 = self.m(40, 0, 40.0, 0.0)
+        self.assertEqual(ESC.context_state(good90, self.CTX, self.CFG), "TEMPORARY")
+        self.assertEqual(ESC.context_state(bad90, self.CTX, self.CFG), "PERSISTENT")
         self.assertEqual(ESC.context_state(None, self.CTX, self.CFG), "UNKNOWN")
-        self.assertEqual(self.ev(T, C=good65, m7=m7)["step"], 5)                                 # calo temporaneo: massimo -5%
-        self.assertEqual(self.ev(T, C=None, m7=m7)["step"], 10)                                  # 65D mancante: conservativo, il motore funziona
-        self.assertEqual(self.ev(T, C=bad65, m7=m7)["step"], 100)                                # 65D che conferma: puo' sbloccare la pausa gia' da 15 clic
-        self.assertEqual(self.ev(self.m(12, 0, 12.0), C=bad65, m7=m7)["step"], 5)                # ma sotto i 15 clic nemmeno il 65D basta
-        self.assertIsNone(self.ev(None, C=bad65, m7=m7))                                         # il 65D da solo non reagisce mai
+        self.assertEqual(self.ev(T, C=good90, m7=m7)["step"], 5)                                 # calo temporaneo: massimo -5%
+        self.assertEqual(self.ev(T, C=None, m7=m7)["step"], 10)                                  # 90D mancante: conservativo, il motore funziona
+        self.assertEqual(self.ev(T, C=bad90, m7=m7)["step"], 100)                                # 90D che conferma: puo' sbloccare la pausa gia' da 15 clic
+        self.assertEqual(self.ev(self.m(12, 0, 12.0), C=bad90, m7=m7)["step"], 5)                # ma sotto i 15 clic nemmeno il 90D basta
+        self.assertIsNone(self.ev(None, C=bad90, m7=m7))                                         # il 90D da solo non reagisce mai
 
     def test_one_or_two_orders_with_high_acos_prefer_minus_5(self):
         m7 = self.m(12, 0, 10.0)
@@ -374,7 +374,7 @@ RANGE_LIFE2 = "1 gen 2025 - 20 ott 2026"
 
 
 class RecurringLifetimeTests(Scenario):
-    LIFE, C65 = True, False
+    LIFE, C90 = True, False
 
     @classmethod
     def setUpClass(cls):

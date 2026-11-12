@@ -28,11 +28,21 @@ def snapshot_id(book_id, campaign_id, report_type, scope, d_from, d_to) -> str:
     return f"{book_id}|{campaign_id}|{report_type}|{period_id(scope, d_from, d_to)}"
 
 
+MEDIUM_CONTEXT_MIN_DAYS, MEDIUM_CONTEXT_MAX_DAYS = 85, 95          # finestra standard «ultimi 90 giorni» con piccoli scostamenti di Amazon (giorni INCLUSIVI)
+
+
+def is_medium_context_days(n) -> bool:
+    """True se la durata (giorni inclusivi) e' quella del contesto intermedio 90D (85-95). Il 65D legacy, il 30D e il 7D NON lo sono."""
+    return n is not None and MEDIUM_CONTEXT_MIN_DAYS <= n <= MEDIUM_CONTEXT_MAX_DAYS
+
+
 def window_label(scope, d_from, d_to) -> str:
-    """LIFETIME / RECENT_<n>D (es. RECENT_65D, RECENT_28D) / UNKNOWN. Qualunque intervallo e' supportato."""
+    """LIFETIME / RECENT_90D (85-95 giorni inclusivi: lo standard «ultimi 90 giorni» con piccoli scostamenti) / RECENT_<n>D (es. RECENT_65D legacy, RECENT_28D) / UNKNOWN."""
     if scope == "LIFETIME":
         return "LIFETIME"
     n = days_inclusive(d_from, d_to) if scope == "DATE_RANGE" else None
+    if is_medium_context_days(n):
+        return "RECENT_90D"
     return f"RECENT_{n}D" if n else "UNKNOWN"
 
 

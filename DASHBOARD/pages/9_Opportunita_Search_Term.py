@@ -47,7 +47,7 @@ with st.expander("Regole usate (conservative, documentate)"):
         f"{cfg['negative_zero_spend_mult']:g}× royalty, oppure {cfg['negative_acos_min_orders']}–9 acquisti con ≥ {cfg['negative_acos_min_clicks']} clic e ACOS fortemente "
         f"sopra il pareggio. {U.OPP_NEGATIVE_TYPE_NOTE}\n"
         f"- **Monitora termine di ricerca**: promettente con pochi dati, o debole ma con campione insufficiente per una negativa (≥ {cfg['watch_min_clicks']} clic).\n"
-        "- **Finestre**: ultimi 30 giorni = evidenza principale, ultimi 65 giorni = conferma; mai sommate. Concordi con acquisti in più: affidabilità +1; "
+        "- **Finestre**: ultimi 30 giorni = evidenza principale, ultimi 90 giorni = conferma; mai sommate. Concordi con acquisti in più: affidabilità +1; "
         "discordanti: −1; affidabilità BASSA → solo da monitorare.\n"
         "- **Già negativa** («Aggiunto come» del report Search Term: negativa esatta o a frase): mai riproposta come negativa e mai promossa in EXACT. "
         "Se il termine vende, diventa **conflitto da verificare**. La negativa vale solo nella campagna in cui è impostata.")
@@ -71,7 +71,7 @@ def table(rows):
         L.append({
             "Termine di ricerca": r["search_term"], "Campagna di provenienza": f"{r['campaign_id']} ({r['campaign_type'] or F.ND})",
             "Campagna Amazon (nome · ID)": (O.campaign_text(r.get("campaign_name"), r.get("amazon_campaign_id")) or F.ND).replace("Campagna: ", ""),
-            "Target padre": parent_text(r), "Ultimi 30 giorni": window_text(r["window_30d"]), "Ultimi 65 giorni": window_text(r["window_65d"]),
+            "Target padre": parent_text(r), "Ultimi 30 giorni": window_text(r["window_30d"]), "Ultimi 90 giorni": window_text(r["window_90d"]),
             "Clic": F.num(r["clicks"]), "Acquisti": F.num(r["orders"]), "Spesa": F.money(r["spend"]), "Vendite": F.money(r["sales"]),
             "ACOS": F.acos(r["acos"]), "CVR": F.pct(r["cvr"]), "Profitto stimato": F.money(r["estimated_profit"]),
             "Affidabilità": U.label_confidence(r["confidence"]), "Finestre": U.label_opp_agreement(r["windows_agreement"]),

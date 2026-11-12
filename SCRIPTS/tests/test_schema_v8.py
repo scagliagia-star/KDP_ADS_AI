@@ -25,9 +25,9 @@ def make_v7(d) -> Path:
     c.execute("PRAGMA foreign_keys=OFF")
     c.execute("PRAGMA legacy_alter_table=ON")
     c.execute("ALTER TABLE global_report_imports RENAME TO tmp_v8")
-    for ix in ("ux_gri_active_v8", "ux_gri_file_mp_v8"):
+    for ix in ("ux_gri_active_v8", "ux_gri_file_mp_v8", "ux_gri_active_v9", "ux_gri_file_mp_v9"):
         c.execute(f"DROP INDEX IF EXISTS {ix}")
-    ddl = GS._IMPORTS_DDL.format(name="global_report_imports").replace("'RECENT_7D','RECENT_30D','RECENT_65D','LIFETIME'", "'RECENT_7D','RECENT_30D'").replace(
+    ddl = GS._IMPORTS_DDL.format(name="global_report_imports").replace("'RECENT_7D','RECENT_30D','RECENT_90D','RECENT_65D','LIFETIME'", "'RECENT_7D','RECENT_30D'").replace(
         "window_days INTEGER,", "window_days INTEGER NOT NULL,")
     c.executescript(ddl + """
 CREATE UNIQUE INDEX ux_gri_active_v7 ON global_report_imports(report_type, window_label, date_from, date_to, marketplace, COALESCE(account_id, '')) WHERE status='ACTIVE';
@@ -64,7 +64,7 @@ def insert_window(c, label, days, d_from, d_to, sha):
 
 class SchemaV8Tests(unittest.TestCase):
     def test_schema_version_is_8(self):
-        self.assertEqual(SCHEMA_VERSION, 8)
+        self.assertGreaterEqual(SCHEMA_VERSION, 8)
         src = (ROOT / "SCRIPTS" / "kdp_ads" / "db.py").read_text(encoding="utf-8")
         self.assertIn("v7 -> v8", src)
 
@@ -72,7 +72,7 @@ class SchemaV8Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
             p = Path(d) / "new.db"
             c = connect(p)
-            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             cols = {r[1] for r in c.execute("PRAGMA table_info(manual_actions)")}
             self.assertTrue({"action_id", "created_at", "executed_at", "account_id", "marketplace", "book_id", "amazon_campaign_id", "amazon_ad_group_id", "amazon_target_id", "search_term",
                              "target_identity", "action_type", "value_before", "value_after", "status", "source_decision_id", "source_run_id", "note"} <= cols)
@@ -96,7 +96,7 @@ class SchemaV8Tests(unittest.TestCase):
             c.close()
 
             c = connect(p)                                                                         # MIGRAZIONE v7 -> v8
-            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             self.assertEqual([tuple(r) for r in c.execute("SELECT * FROM global_report_imports ORDER BY gimport_id")], gi_before)         # stessi gimport_id, stesse righe
             self.assertEqual([tuple(r) for r in c.execute("SELECT * FROM global_report_rows ORDER BY id")], rows_before)
             self.assertEqual(c.execute("SELECT COUNT(*) FROM global_report_imports_v7_old").fetchone()[0], 2)                             # audit conservato
@@ -107,7 +107,7 @@ class SchemaV8Tests(unittest.TestCase):
             insert_window(c, "LIFETIME", None, "2026-10-13", "2026-10-13", "n2")
             c.commit()
             names = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='index'")}
-            self.assertTrue({"ux_gri_active_v8", "ux_gri_file_mp_v8"} <= names)
+            self.assertTrue({"ux_gri_active_v9", "ux_gri_file_mp_v9"} <= names)
             c.close()
             backups = list((Path(d) / "backups").glob(f"kdp_ads_pre_schema_v{SCHEMA_VERSION}_*.db"))
             self.assertEqual(len(backups), 1)
@@ -167,7 +167,7 @@ class SchemaV8Tests(unittest.TestCase):
             c.commit()
             c.close()
             c = connect(p)
-            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             c.close()
             self.assertEqual(len(list((Path(d) / "backups").glob("*.db"))), 1)
 

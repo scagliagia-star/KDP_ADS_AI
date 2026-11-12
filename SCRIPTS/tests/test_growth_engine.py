@@ -84,10 +84,10 @@ class GoodVsWatchTests(unittest.TestCase):
         self.assertEqual(o["good"][0]["reason"], "Sta funzionando bene.")                     # niente "peggiorato" solo perche' 20,4 > 14,0
 
     def test_historical_good_and_recent_above_target_with_enough_evidence_is_watch(self):
-        d = hold(1, tactical_clicks=5.0, tactical_orders=1.0, recent_clicks=19.0, recent_orders=2.0, recent_acos=67.9)     # 30D minuscolo -> usa 65D
+        d = hold(1, tactical_clicks=5.0, tactical_orders=1.0, recent_clicks=19.0, recent_orders=2.0, recent_acos=67.9)     # 30D minuscolo -> usa 90D
         o = ov([d])
         self.assertEqual(([c["badge"] for c in o["monitor"]], o["good"]), (["MONITORA"], []))
-        self.assertIn("negli ultimi 65 giorni l'ACOS è 67,9%, sopra l'obiettivo 35,0%", o["monitor"][0]["reason"])
+        self.assertIn("negli ultimi 90 giorni l'ACOS è 67,9%, sopra l'obiettivo 35,0%", o["monitor"][0]["reason"])
         self.assertEqual(ov([hold(2, tactical_clicks=20.0, tactical_orders=3.0, tactical_acos=53.9)])["monitor"][0]["reason"].count("30 giorni"), 1)
 
     def test_historical_good_and_recent_above_target_but_tiny_sample_does_not_overreact(self):
@@ -99,7 +99,7 @@ class GoodVsWatchTests(unittest.TestCase):
         w = tov.O.recent_window_used(hold(1, tactical_clicks=12.0, tactical_orders=1.0, tactical_acos=20.0, recent_clicks=40.0, recent_orders=5.0, recent_acos=60.0))
         self.assertEqual((w["days"], w["acos"]), (30, 20.0))
         w = tov.O.recent_window_used(hold(1, tactical_clicks=5.0, recent_clicks=40.0, recent_orders=5.0, recent_acos=60.0))
-        self.assertEqual((w["days"], w["acos"]), (65, 60.0))
+        self.assertEqual((w["days"], w["acos"]), (90, 60.0))
         self.assertIsNone(tov.O.recent_window_used(hold(1, tactical_clicks=5.0, recent_clicks=9.0, recent_orders=2.0, recent_acos=60.0)))
 
     def test_historical_above_target_keeps_the_previous_prudent_rule(self):

@@ -49,14 +49,13 @@ class GlobalPagesTests(tg.WsBase):
     def test_import_page_has_four_slots_preview_then_import(self):
         at = AppTest.from_file(P13, default_timeout=120).run()
         self.assertFalse(at.exception, at.exception)
-        self.assertEqual([u.label for u in at.get("file_uploader")], ["Targeting 7D", "Targeting 30D", "Targeting Lifetime", "Search Term 7D", "Search Term 30D", "Search Term 65D"])
+        self.assertEqual([u.label for u in at.get("file_uploader")], ["Search Term 7D", "Search Term 30D", "Search Term 90D", "Targeting 7D", "Targeting 30D", "Targeting Lifetime"])
         t = self.texts(at)
         self.assertIn("Nuovo flusso consigliato", t)
         self.assertIn("nessuna azione viene eseguita su Amazon Ads", t)
         before = self.q("SELECT COUNT(*) n FROM global_report_rows")[0]["n"]
-        up = at.get("file_uploader")
-        up[1].upload("TG30.csv", tg.targeting_30(), "text/csv")
-        up[2].upload("ST7.csv", tg.search_7(), "text/csv")
+        tg.uploader(at, "Targeting 30D").upload("TG30.csv", tg.targeting_30(), "text/csv")
+        tg.uploader(at, "Targeting Lifetime").upload("ST7.csv", tg.search_7(), "text/csv")
         at.run()
         [b for b in at.button if b.label == "ANALIZZA FILE"][0].click().run()
         self.assertFalse(at.exception, at.exception)
@@ -77,7 +76,7 @@ class GlobalPagesTests(tg.WsBase):
 
     def test_invalid_file_is_a_clear_error_not_a_crash(self):
         at = AppTest.from_file(P13, default_timeout=120).run()
-        at.get("file_uploader")[0].upload("bad.csv", b"a,b\n1,2\n", "text/csv")
+        tg.uploader(at, "Targeting 7D").upload("bad.csv", b"a,b\n1,2\n", "text/csv")
         at.run()
         [b for b in at.button if b.label == "ANALIZZA FILE"][0].click().run()
         self.assertFalse(at.exception, at.exception)
@@ -147,7 +146,7 @@ class GlobalPagesTests(tg.WsBase):
         GI.run_import(self.ws, {"TARGETING_30D": ("t30.csv", tg.targeting_30())}, recalc=False)
         v2 = rb.targeting_30_revised()
         at = AppTest.from_file(P13, default_timeout=120).run()
-        at.get("file_uploader")[1].upload("t30_v2.csv", v2, "text/csv")
+        tg.uploader(at, "Targeting 30D").upload("t30_v2.csv", v2, "text/csv")
         at.run()
         [b for b in at.button if b.label == "ANALIZZA FILE"][0].click().run()
         self.assertFalse(at.exception, at.exception)
@@ -161,7 +160,7 @@ class GlobalPagesTests(tg.WsBase):
         [b for b in at.button if b.label == "ANNULLA"][0].click().run()
         self.assertEqual(self.q("SELECT COUNT(*) n FROM global_report_imports")[0]["n"], before)           # ANNULLA: nulla cambia
         at = AppTest.from_file(P13, default_timeout=120).run()
-        at.get("file_uploader")[1].upload("t30_v2.csv", v2, "text/csv")
+        tg.uploader(at, "Targeting 30D").upload("t30_v2.csv", v2, "text/csv")
         at.run()
         [b for b in at.button if b.label == "ANALIZZA FILE"][0].click().run()
         [b for b in at.button if b.label == "USA VERSIONE PIÙ RECENTE"][0].click().run()

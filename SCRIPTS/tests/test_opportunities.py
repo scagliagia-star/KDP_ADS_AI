@@ -296,7 +296,7 @@ class DuplicatesAndWindowsTests(unittest.TestCase):
     def test_windows_agree_extra_orders_raise_confidence(self):
         rows = [st("AUTO", "OTHER", "loose-match", "growing term", D30, 12, 2, 13.0), st("AUTO", "OTHER", "loose-match", "growing term", D65, 30, 4, 28.0)]
         r = only(run(rows), "growing term")
-        self.assertEqual((r["window_30d"]["cls"], r["window_65d"]["cls"]), ("PROMO_MEDIUM", "PROMO_HIGH" if 28 / (4 * SALE) * 100 <= 35 else "PROMO_MEDIUM"))
+        self.assertEqual((r["window_30d"]["cls"], r["window_90d"]["cls"]), ("PROMO_MEDIUM", "PROMO_HIGH" if 28 / (4 * SALE) * 100 <= 35 else "PROMO_MEDIUM"))
         self.assertEqual((r["windows_agreement"], r["opportunity_type"], r["confidence"]), ("CONCORDI", PROMOTE, "HIGH"))
 
     def test_windows_disagree_lowers_confidence_and_demotes_to_watch(self):
@@ -320,7 +320,7 @@ class DuplicatesAndWindowsTests(unittest.TestCase):
 
     def test_missing_30d_window_uses_65d_with_reduced_confidence(self):
         r = only(run([st("AUTO", "OTHER", "loose-match", "only65", D65, 20, 3, 15.0)]), "only65")
-        self.assertEqual((r["opportunity_type"], r["confidence"], r["windows_agreement"]), (PROMOTE, "MEDIUM", "SOLO_65D"))
+        self.assertEqual((r["opportunity_type"], r["confidence"], r["windows_agreement"]), (PROMOTE, "MEDIUM", "SOLO_90D"))
 
     def test_rank_orders_by_confidence_then_orders(self):
         rows = both("AUTO", "OTHER", "loose-match", "medium one", 12, 2, 13.0) + both("AUTO", "OTHER", "loose-match", "high one", 20, 3, 15.0)

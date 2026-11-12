@@ -83,7 +83,7 @@ def why(st, d, book):
             st.markdown(f"- {part}")
         st.markdown(f"**Storico completo** · profitto stimato {F.money(d.get('lifetime_estimated_profit'))} (stima)")
         _metrics(st, U.label_window("LIFETIME"), d, "lifetime")
-        _metrics(st, f"{U.label_window(d.get('recent_window') or 'RECENT_65D')} · {d.get('recent_period') or F.ND}", d, "recent")
+        _metrics(st, f"{U.label_window(d.get('recent_window') or 'RECENT_90D')} · {d.get('recent_period') or F.ND}", d, "recent")
         _metrics(st, f"{U.label_window(d.get('tactical_window') or 'RECENT_30D')} · {d.get('tactical_period') or F.ND}", d, "tactical")
         st.markdown(f"**Erogazione:** {U.label_delivery(d.get('delivery_signal'))} · {U.label_delivery_source(d.get('delivery_source'))}"
                     + (f" · rapporto ×{d['delivery_ratio']:.2f}" if d.get("delivery_ratio") is not None else ""))
@@ -129,7 +129,7 @@ def action_card(st, c, book):
         m[4].metric(f"ACOS ultimi {a['tactical_days']} giorni", _acos(a["tactical"]))
         m[5].metric("Affidabilità", U.label_confidence(c["confidence"]))
         trend_ui.line(st, d)
-        if d.get("recent_clicks") is not None and (O.window_days(d.get("recent_window"), 65) or 0) > 35:
+        if d.get("recent_clicks") is not None and (O.window_days(d.get("recent_window"), 90) or 0) > 35:
             st.caption(f"Contesto {a['recent_days']}D: {F.num(d.get('recent_clicks'))} clic · {F.num(d.get('recent_orders'))} acquisti · ACOS {_acos(d.get('recent_acos'))} "
                        "(contesto intermedio: non decide da solo)")
         if c.get("underlying"):

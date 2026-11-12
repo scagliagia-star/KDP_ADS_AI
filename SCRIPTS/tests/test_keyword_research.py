@@ -371,13 +371,13 @@ class ProjectTests(unittest.TestCase):
 
     def test_no_schema_change_and_no_rocket_table(self):
         from kdp_ads import db as D
-        self.assertEqual(D.SCHEMA_VERSION, 8)                                         # nessun cambio di schema: Rocket resta nella bozza di lancio (file) o nella sessione
+        self.assertEqual(D.SCHEMA_VERSION, 9)                                         # nessuna tabella Rocket: Rocket resta nella bozza di lancio (file) o nella sessione
         self.assertNotIn("rocket", S.SCHEMA.lower())
         fresh = tempfile.TemporaryDirectory()
         try:
             c = connect(Path(fresh.name) / "k.db")
             names = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(c.execute("PRAGMA user_version").fetchone()[0], D.SCHEMA_VERSION)
             c.close()
             self.assertFalse([n for n in names if "rocket" in n])
         finally:

@@ -1,20 +1,20 @@
 """ESCALATION RECENTE: gerarchia delle finestre per libri maturi e correzione dei casi in cui il Lifetime frena troppo. Funzioni PURE (nessun DB).
 
-GERARCHIA   7D = trend/conferma · 30D = finestra DECISIONALE primaria · 65D = contesto intermedio (persistente o temporaneo?) · Lifetime = memoria storica.
+GERARCHIA   7D = trend/conferma · 30D = finestra DECISIONALE primaria · 90D = contesto intermedio (persistente o temporaneo?) · Lifetime = memoria storica.
 Il Lifetime NON puo' da solo annullare un deterioramento recente forte: se il 30D e' molto negativo, il 7D conferma e il campione e' sufficiente, l'azione parte comunque; il
-Lifetime forte (molti acquisti, ACOS entro il pareggio) rende solo l'azione PIU' PRUDENTE (-5 / -10 invece della pausa). Il 65D da solo non reagisce mai.
+Lifetime forte (molti acquisti, ACOS entro il pareggio) rende solo l'azione PIU' PRUDENTE (-5 / -10 invece della pausa). Il 90D da solo non reagisce mai.
 Tutte le regole richiedono: evidenza 30D (tattica) + conferma 7D (la riga 7D esiste ed e' sfavorevole). Senza 7D disponibile (MISSING_7D) non si escala.
 
 REGOLE (soglie RELATIVE a royalty / ACOS di pareggio, in rules.json -> recent_escalation):
   R1 ZERO ORDINI       30D con >= zero_order_min_clicks clic, 0 acquisti, spesa >= zero_order_min_spend_royalty_mult x royalty, 7D ancora a 0 acquisti: SCALA GRADUALE
                        10-14 clic => -5%; 15-19 => -10%;
-  R1P PAUSA CANDIDATA  >= zero_order_pause_min_clicks clic (e spesa >= royalty) SOLO se il 65D conferma un problema persistente (il 65D puo' sbloccarla gia' da
-                       zero_order_pause_unlock_min_clicks clic); senza 65D resta -10%. Storico forte => massimo -10%, mai pausa;
-                       target storicamente forte => al massimo -10% (mai pausa immediata); 65D buono (calo temporaneo) => al massimo -5%.
+  R1P PAUSA CANDIDATA  >= zero_order_pause_min_clicks clic (e spesa >= royalty) SOLO se il 90D conferma un problema persistente (il 90D puo' sbloccarla gia' da
+                       zero_order_pause_unlock_min_clicks clic); senza 90D resta -10%. Storico forte => massimo -10%, mai pausa;
+                       target storicamente forte => al massimo -10% (mai pausa immediata); 90D buono (calo temporaneo) => al massimo -5%.
   R3 ACOS ALTO         (1-2 acquisti = campione limitato: -5%, -10% solo con >= low_sample_step10_min_clicks clic, ACOS >= severe x pareggio e 7D a 0; pausa con il doppio dei clic)
                        30D CON acquisti ma ACOS > high_acos_break_even_mult x pareggio, >= high_acos_min_clicks clic e 7D che non recupera => BID_DOWN (mai «vincente»):
                        -5/-10 secondo le fasce ACOS del libro; PAUSE solo con evidenza forte (ACOS >= high_acos_pause_acos_break_even_mult x pareggio, >= high_acos_pause_min_clicks
-                       clic, 7D senza acquisti con >= high_acos_pause_7d_min_clicks clic, storico non forte, 65D non buono).
+                       clic, 7D senza acquisti con >= high_acos_pause_7d_min_clicks clic, storico non forte, 90D non buono).
   Lo storico forte (>= strong_history_min_orders acquisti e ACOS Lifetime entro il pareggio) limita il passo a strong_history_cap_step (-5), o a strong_history_cap_step_severe
   (-10) se il 30D e' MOLTO negativo (ACOS >= severe_acos_break_even_mult x pareggio con >= severe_min_clicks clic)."""
 
@@ -41,7 +41,7 @@ def strong_history(L, ctx, cfg) -> bool:
 
 
 def context_state(C, ctx, cfg) -> str:
-    """Il 65D (contesto intermedio) dice se il problema e' PERSISTENTE, un calo TEMPORANEO oppure UNKNOWN (65D assente o ambiguo). Non decide mai da solo."""
+    """Il 90D (contesto intermedio) dice se il problema e' PERSISTENTE, un calo TEMPORANEO oppure UNKNOWN (90D assente o ambiguo). Non decide mai da solo."""
     if C is None:
         return "UNKNOWN"
     if C.orders >= cfg["context_good_min_orders"] and C.acos is not None and C.acos <= ctx.target_acos:
@@ -56,29 +56,29 @@ def _fmt(v, suffix="%"):
 
 
 def evaluate(T, L, C, m7, ctx, cfg) -> dict | None:
-    """T = Metrics 30D (tattico), L = Metrics Lifetime | None, C = Metrics 65D (contesto) | None, m7 = Metrics 7D | None.
+    """T = Metrics 30D (tattico), L = Metrics Lifetime | None, C = Metrics 90D (contesto) | None, m7 = Metrics 7D | None.
     Ritorna {step (5|10|15|100), rule, flag, logic, severity} oppure None (nessuna escalation)."""
     if not cfg.get("enabled", True) or T is None or m7 is None:
         return None
     R, be = ctx.royalty, ctx.break_even_acos
     hist_strong = strong_history(L, ctx, cfg)
     ctxs = context_state(C, ctx, cfg)
-    ctx_txt = {"PERSISTENT": " Il 65D conferma un problema persistente.", "TEMPORARY": " Il 65D e' buono: probabile calo temporaneo, azione limitata.",
+    ctx_txt = {"PERSISTENT": " Il 90D conferma un problema persistente.", "TEMPORARY": " Il 90D e' buono: probabile calo temporaneo, azione limitata.",
                "UNKNOWN": ""}[ctxs]
     # ---- R1 / R1P: 30D senza acquisti, 7D conferma
     if (T.orders == 0 and T.clicks >= cfg["zero_order_min_clicks"] and T.spend >= cfg["zero_order_min_spend_royalty_mult"] * R
             and m7.orders == 0 and m7.clicks >= cfg["zero_order_7d_min_clicks"]):
-        # SCALA GRADUALE: 10-14 clic => -5%; 15-19 => -10%; >= 20 => pausa candidata SOLO se il 65D (reale) conferma un problema persistente. Senza 65D la pausa non e' sbloccata
-        # (resta -10%); con il 65D che conferma, la pausa si sblocca gia' da zero_order_pause_unlock_min_clicks clic. Storico forte: massimo strong_history_cap_step_severe, mai pausa.
+        # SCALA GRADUALE: 10-14 clic => -5%; 15-19 => -10%; >= 20 => pausa candidata SOLO se il 90D (reale) conferma un problema persistente. Senza 90D la pausa non e' sbloccata
+        # (resta -10%); con il 90D che conferma, la pausa si sblocca gia' da zero_order_pause_unlock_min_clicks clic. Storico forte: massimo strong_history_cap_step_severe, mai pausa.
         step, note = cfg["zero_order_step"], ""
         if T.clicks >= cfg["zero_order_step10_min_clicks"]:
             step = 10
         if ctxs == "PERSISTENT" and T.clicks >= cfg["zero_order_pause_unlock_min_clicks"] and T.spend >= cfg["zero_order_pause_min_spend_royalty_mult"] * R:
             step = 100
         elif T.clicks >= cfg["zero_order_pause_min_clicks"]:
-            note = " (pausa non sbloccata: manca la conferma del 65D, resta prudente)" if C is None else " (pausa non sbloccata: il 65D non conferma un problema persistente)"
+            note = " (pausa non sbloccata: manca la conferma del 90D, resta prudente)" if C is None else " (pausa non sbloccata: il 90D non conferma un problema persistente)"
         if ctxs == "TEMPORARY" and step > cfg["zero_order_step"]:
-            step, note = cfg["zero_order_step"], " (limitato: 65D buono)"
+            step, note = cfg["zero_order_step"], " (limitato: 90D buono)"
         if hist_strong and step > cfg["strong_history_cap_step_severe"]:
             step, note = cfg["strong_history_cap_step_severe"], " (limitato: target storicamente forte, mai pausa immediata)"
         rule, flag = (("R1P_RECENT_ZERO_ORDER_PAUSE", "RECENT_ZERO_ORDER_PAUSE") if step == 100 else ("R1_RECENT_ZERO_ORDER_ESCALATION", "RECENT_ZERO_ORDER_ESCALATION"))
@@ -103,7 +103,7 @@ def evaluate(T, L, C, m7, ctx, cfg) -> dict | None:
                 and m7.clicks >= cfg["high_acos_pause_7d_min_clicks"] and not hist_strong and ctxs != "TEMPORARY"):
             step, rule, flag = 100, "R3P_HIGH_ACOS_PAUSE", "HIGH_ACOS_PAUSE"
         if ctxs == "TEMPORARY" and step > 5:
-            step, note = 5, " (limitato: 65D buono)"
+            step, note = 5, " (limitato: 90D buono)"
         severe = T.acos >= cfg["severe_acos_break_even_mult"] * be and T.clicks >= cfg["severe_min_clicks"]
         cap = cfg["strong_history_cap_step_severe"] if severe else cfg["strong_history_cap_step"]
         if hist_strong and step > cap:

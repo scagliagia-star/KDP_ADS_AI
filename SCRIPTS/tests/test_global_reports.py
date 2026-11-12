@@ -40,6 +40,11 @@ ST_HEAD = ["Valuta budget", "Intervallo di date", "ID account inserzionista", "N
 RANGE30, RANGE7 = "14 set 2026 - 13 ott 2026", "7 ott 2026 - 13 ott 2026"
 
 
+def uploader(at, label):
+    """Uploader della pagina Report globali per ETICHETTA (la posizione dipende dal raggruppamento SETTIMANALI / MENSILE)."""
+    return next(u for u in at.get("file_uploader") if u.label == label)
+
+
 def xl(v):
     return f'="{v}"'
 

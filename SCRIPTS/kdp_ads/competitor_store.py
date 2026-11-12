@@ -302,7 +302,7 @@ def brand_overrides(conn, research_id) -> dict:
 # ------------------------------------------------------------------ contesto dei dati reali (SOLA LETTURA)
 def own_context(conn, book_id, marketplace=None, negatives=()) -> dict:
     """Keyword target, search term osservati e negative del libro (+ marketplace) per il gap. Legge target_rows / search_term_rows senza scrivere.
-    I Search Term sono presi come MASSIMO per finestra (le finestre 30D/65D/lifetime sono nidificate: mai sommate). Tabelle assenti = contesto vuoto."""
+    I Search Term sono presi come MASSIMO per finestra (le finestre 30D/90D/lifetime sono nidificate: mai sommate). Tabelle assenti = contesto vuoto."""
     mp = str(marketplace).upper() if marketplace else None
     cond = " AND (UPPER(marketplace)=? OR marketplace IS NULL)" if mp else ""
     params = (str(book_id), mp) if mp else (str(book_id),)

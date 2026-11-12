@@ -8,7 +8,7 @@ Opportunity type: PROMOTE_TO_EXACT | NEGATIVE_CANDIDATE | WATCH_SEARCH_TERM | NO
 manual_review_required = True.
 
 REGOLE EFFETTIVE (tutte in DEFAULTS, sovrascrivibili con la chiave opzionale rules["opportunities"]; rules.json NON e' modificato):
-  Finestre: 30D tattico (ruolo TACTICAL, <= snapshots.tactical_max_days) = evidenza principale; 65D (RECENT_CONTEXT) = conferma; il lifetime
+  Finestre: 30D tattico (ruolo TACTICAL, <= snapshots.tactical_max_days) = evidenza principale; 90D (RECENT_CONTEXT) = conferma; il lifetime
   non esiste per i Search Term (il Target report e' per target, non per termine). Le finestre sono nidificate/sovrapposte: MAI sommate;
   ognuna e' valutata da sola. Dentro la STESSA campagna e finestra, le righe dello stesso termine con target padre diversi sono invece
   disgiunte e si sommano. Fra campagne diverse i record restano separati (campo also_seen_in).
@@ -21,9 +21,9 @@ REGOLE EFFETTIVE (tutte in DEFAULTS, sovrascrivibili con la chiave opzionale rul
     WATCH_BAD    0 ordini con >= 3 clic, oppure ordini con ACOS > break-even, ma sotto le soglie NEG (debole, campione insufficiente)
     NONE         tutto il resto (es. 1-2 clic senza ordini)
   Confidence PROMO: dalla classe. Confidence NEG: calculate_confidence() gia' usata dal motore (0 ordini: HIGH >= 25 clic, MEDIUM >= 10).
-  Combinazione 30D/65D: se le finestre concordano E la conferma porta ordini in piu' (indipendenti dal 30D) la confidence sale di un
+  Combinazione 30D/90D: se le finestre concordano E la conferma porta ordini in piu' (indipendenti dal 30D) la confidence sale di un
   livello; se discordano scende di un livello. Se la confidence finale e' LOW il suggerimento diventa WATCH. Se il 30D non e' stato
-  importato per la campagna, si usa il 65D con confidence ridotta di un livello; se il 30D e' importato ma il termine non vi compare
+  importato per la campagna, si usa il 90D con confidence ridotta di un livello; se il 30D e' importato ma il termine non vi compare
   (nessuna conferma recente) il suggerimento e' al massimo WATCH.
   PROMOTE_TO_EXACT: solo termini reali (non ASIN, non gruppi Auto), non gia' keyword EXACT nello stesso libro + marketplace
   (se gia' EXACT: NO_ACTION con flag ALREADY_IN_EXACT). Gia' in PHRASE/altre campagne: puo' comunque essere promosso (already_targeted_elsewhere).
@@ -40,6 +40,7 @@ from . import intent as intent_filter
 from .dataquality import impossible_warnings, split_search_terms
 from .metrics import AUTO_TARGET_GROUPS, compute_metrics, normalize_term, product_asin, target_type, term_matches_target
 from .rules import BookCtx, CONF_ORDER, calculate_confidence, deep_merge
+from .windows import CONTEXT_FRESHNESS_DAYS, pick_context
 from .snapshots import days_inclusive, period_id as make_period_id, window_label, window_role
 
 PROMOTE, NEGATIVE, WATCH, NO_ACTION = "PROMOTE_TO_EXACT", "NEGATIVE_CANDIDATE", "WATCH_SEARCH_TERM", "NO_ACTION"
@@ -191,8 +192,10 @@ def campaign_windows(st_rows, snap_cfg):
     out = {}
     for cid, per in seen.items():
         tac = sorted((p for p, (role, _, _) in per.items() if role == "TACTICAL"), key=lambda p: (per[p][2], -(per[p][1] or 0)), reverse=True)
-        con = sorted((p for p, (role, _, _) in per.items() if role == "RECENT_CONTEXT"), key=lambda p: (per[p][1] or 0, per[p][2]), reverse=True)
-        out[cid] = {"tactical": tac[0] if tac else None, "confirm": con[0] if con else None}
+        con = [p for p, (role, _, _) in per.items() if role == "RECENT_CONTEXT"]
+        ref = per[tac[0]][2] if tac else None
+        out[cid] = {"tactical": tac[0] if tac else None,
+                    "confirm": pick_context([(p, per[p][1], per[p][2]) for p in con], ref, snap_cfg.get("context_freshness_days", CONTEXT_FRESHNESS_DAYS)) if con else None}
     return out
 
 
@@ -423,23 +426,23 @@ def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any
             base = T
             conf, agree = combine(T, C, lambda o: _dir(o) == "POS", "orders")
             why.append(f"30D: {T['orders']:g} ordini, ACOS {_acos(T)} ({'<= ACOS obiettivo' if T['cls'] == 'PROMO_HIGH' else '<= pareggio'})")
-        else:                                                       # promo solo nel 65D
+        else:                                                       # promo solo nel 90D
             base = C
             if not has_tactical_window:
-                conf, agree = _down(C["confidence"]), "SOLO_65D"
-                why.append("finestra 30D non importata: valutato solo sul 65D, confidence ridotta")
+                conf, agree = _down(C["confidence"]), "SOLO_90D"
+                why.append("finestra 30D non importata: valutato solo sul 90D, confidence ridotta")
             elif T is None:                                         # nessuna attivita' nel 30D: manca la conferma ma non c'e' neppure una smentita
                 conf, agree = _down(C["confidence"]), "ASSENTE_30D"
-                why.append("ordini nel 65D, nessuna attivita' negli ultimi 30 giorni (nessuna smentita): promozione con affidabilita' ridotta di un livello")
+                why.append("ordini nel 90D, nessuna attivita' negli ultimi 30 giorni (nessuna smentita): promozione con affidabilita' ridotta di un livello")
             elif _dir(T) == "NONE":
                 conf, agree = "LOW", "NON_CONFERMATO_30D"
-                why.append("ordini nel 65D ma nessuna conferma nel 30D (termine senza attivita' utile recente)")
+                why.append("ordini nel 90D ma nessuna conferma nel 30D (termine senza attivita' utile recente)")
             elif _dir(T) == "POS":
                 conf, agree = _down(C["confidence"]), "CONCORDI"
-                why.append("65D forte; il 30D e' nella stessa direzione ma con pochi dati")
+                why.append("90D forte; il 30D e' nella stessa direzione ma con pochi dati")
             else:
                 conf, agree = "LOW", "DISCORDI"
-                why.append("65D forte ma il 30D e' negativo: finestre discordanti")
+                why.append("90D forte ma il 30D e' negativo: finestre discordanti")
         if conf == "LOW":
             otype = WATCH
             why.append("confidence finale insufficiente per promuovere")
@@ -461,17 +464,17 @@ def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any
             else:
                 base = C
                 if not has_tactical_window:
-                    conf, agree = _down(C["confidence"]), "SOLO_65D"
-                    why.append("finestra 30D non importata: valutato solo sul 65D, confidence ridotta")
+                    conf, agree = _down(C["confidence"]), "SOLO_90D"
+                    why.append("finestra 30D non importata: valutato solo sul 90D, confidence ridotta")
                 elif T is None or _dir(T) == "NONE":
                     conf, agree = "LOW", "NON_CONFERMATO_30D"
-                    why.append("spreco nel 65D ma nessuna attivita' recente: nessuna urgenza")
+                    why.append("spreco nel 90D ma nessuna attivita' recente: nessuna urgenza")
                 elif _dir(T) == "NEG":
                     conf, agree = C["confidence"], "CONCORDI"
-                    why.append("65D debole e il 30D conferma la direzione")
+                    why.append("90D debole e il 30D conferma la direzione")
                 else:
                     conf, agree = "LOW", "DISCORDI"
-                    why.append("65D debole ma il 30D e' positivo: finestre discordanti")
+                    why.append("90D debole ma il 30D e' positivo: finestre discordanti")
             if conf == "LOW":
                 otype = WATCH
                 why.append("confidence finale insufficiente per una negative")
@@ -531,7 +534,7 @@ def _decide(cid, ctype_, term, parent, parents, T, C, w, ctx, cfg, exact_kw, any
         "search_term": term, "period_id": base["period_id"], "primary_window": base["window"],
         "clicks": base["clicks"], "spend": base["spend"], "orders": base["orders"], "sales": base["sales"], "acos": base["acos"],
         "cvr": base["cvr"], "cpc": base["cpc"], "estimated_profit": base["estimated_profit"],
-        "window_30d": T, "window_65d": C, "windows_agreement": agree,
+        "window_30d": T, "window_90d": C, "windows_agreement": agree,
         "opportunity_type": otype, "confidence": conf, "reason": "; ".join(why) + ".", "flags": flags,
         "already_in_exact": already_exact, "already_targeted_elsewhere": bool(elsewhere),
         "targeted_in": sorted({e[0] for e in elsewhere}), "also_seen_in": [],

@@ -19,9 +19,9 @@ from . import ValidationError
 from .backup import backup_db
 
 REPORT_TYPES = {"TARGETING": "Target", "SEARCH_TERM": "Search Term"}
-PERIOD_KINDS = {"LIFETIME": "Storico completo (LIFETIME)", "D65": "Ultimi 65 giorni", "D30": "Ultimi 30 giorni", "D7": "Ultimi 7 giorni (solo trend)",
+PERIOD_KINDS = {"LIFETIME": "Storico completo (LIFETIME)", "D90": "Ultimi 90 giorni (contesto intermedio)", "D30": "Ultimi 30 giorni", "D7": "Ultimi 7 giorni (solo trend)",
                 "CUSTOM": "Intervallo personalizzato"}
-LEGACY_KINDS = {"D28": "Ultimi 28 giorni (storico, non piu' proposto)"}      # solo compatibilita': snapshot 28D gia' esistenti
+LEGACY_KINDS = {"D28": "Ultimi 28 giorni (storico, non piu' proposto)", "D65": "Ultimi 65 giorni (storico legacy, non piu' proposto)"}      # solo compatibilita': snapshot 28D gia' esistenti
 _SAFE = re.compile(r"[^A-Za-z0-9._() \-]")
 
 
@@ -55,7 +55,7 @@ def _d(v, label) -> date:
 
 
 def resolve_period(kind, date_from=None, date_to=None) -> Period:
-    """LIFETIME: serve la data di esportazione (date_to). 65/30 giorni (28 solo legacy): date_from = date_to - (n-1) (estremi inclusi).
+    """LIFETIME: serve la data di esportazione (date_to). 90/30 giorni (28 e 65 solo legacy): date_from = date_to - (n-1) (estremi inclusi).
     Personalizzato: servono entrambe le date."""
     if kind not in PERIOD_KINDS and kind not in LEGACY_KINDS:
         raise ValidationError("Tipo di periodo non valido")
@@ -64,8 +64,8 @@ def resolve_period(kind, date_from=None, date_to=None) -> Period:
     to = _d(date_to, "Data di fine")
     if kind == "LIFETIME":
         return Period("LIFETIME", None, to.isoformat())
-    if kind in ("D65", "D30", "D28", "D7"):
-        n = {"D65": 65, "D30": 30, "D28": 28, "D7": 7}[kind]
+    if kind in ("D90", "D65", "D30", "D28", "D7"):
+        n = {"D90": 90, "D65": 65, "D30": 30, "D28": 28, "D7": 7}[kind]
         return Period("DATE_RANGE", (to - timedelta(days=n - 1)).isoformat(), to.isoformat())
     if date_from in (None, ""):
         raise ValidationError("Data di inizio: campo obbligatorio")

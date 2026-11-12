@@ -124,7 +124,7 @@ def decisions_markdown(ds) -> str:
     A.append("**Logica di consolidamento** (prudente, non additiva): lifetime e recente concordi → si applica UNA volta il passo maggiore "
              "(due BID_DOWN_10 restano −10%, non −20%); lifetime HOLD + recente in bid-down → deterioramento recente, massimo −5% (−10% solo "
              "se recente HIGH e DECLINING) con confidence al massimo MEDIUM; il cross-campaign conferma ma non somma passi; ordini lifetime ≥ 10 → "
-             "mai pausa, massimo −15%; periodo tattico = ultimo periodo comparabile (Target e Search Term con le stesse date), 65 giorni = contesto "
+             "mai pausa, massimo −15%; periodo tattico = ultimo periodo comparabile (Target e Search Term con le stesse date), 90 giorni = contesto "
              "recente, lifetime = contesto storico (un buon storico non nasconde un peggioramento recente, un cattivo storico non forza un bid-down se il periodo "
              "tattico e' sano); ACOS alto + delivery per-giorno crollata → REVIEW_DELIVERY_BEFORE_BID_CHANGE invece di un ulteriore bid-down; 1–4 ordini con perdita ≥ 2× royalty → bid-down (max −10%) con confidence LOW; "
              "winner → HOLD + growth opportunity. Amazon e' solo audit e non modifica la decisione.\n")

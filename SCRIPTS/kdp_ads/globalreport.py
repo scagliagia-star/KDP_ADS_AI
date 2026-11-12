@@ -8,7 +8,7 @@ Impressioni, Clic, Costo totale, Acquisti, Vendite, Unita' vendute, ... Gli ID a
 (nessuna perdita di precisione).
 
 REGOLE
-  - il tipo di report (TARGETING / SEARCH_TERM) e' riconosciuto dalle colonne; la FINESTRA (RECENT_7D / RECENT_30D / RECENT_65D / LIFETIME) la sceglie l'utente per file: NON si deduce mai da
+  - il tipo di report (TARGETING / SEARCH_TERM) e' riconosciuto dalle colonne; la FINESTRA (RECENT_7D / RECENT_30D / RECENT_90D / LIFETIME (RECENT_65D = LEGACY, solo lettura)) la sceglie l'utente per file: NON si deduce mai da
     "Intervallo di date", che e' un metadato della singola riga (un target comparso a meta' finestra ha un intervallo piu' corto);
   - snapshot: date_to = ultima data finale delle righe (o quella indicata dall'utente), date_from = date_to - (giorni - 1);
   - Search Term vuoto: la riga e' CONSERVATA (flag empty_search_term) ma non e' mai un search term reale (nessun "nan", nessuna promozione, nessuna negativa);
@@ -24,8 +24,8 @@ from datetime import date, timedelta
 
 PARSER_VERSION = 1
 SOURCE = "AMAZON_GLOBAL_REPORT"
-WINDOWS = {"RECENT_7D": 7, "RECENT_30D": 30, "RECENT_65D": 65, "LIFETIME": None}      # LIFETIME: nessuna durata (storico completo, finestra di sostegno mensile)
-WINDOW_ROLES = {"RECENT_7D": "TREND", "RECENT_30D": "DECISIONAL", "RECENT_65D": "CONTEXT_MEDIUM", "LIFETIME": "HISTORICAL_MEMORY"}
+WINDOWS = {"RECENT_7D": 7, "RECENT_30D": 30, "RECENT_90D": 90, "RECENT_65D": 65, "LIFETIME": None}      # LIFETIME: nessuna durata (storico completo, finestra di sostegno mensile). RECENT_65D: finestra LEGACY, gia' importata: leggibile e auditabile, MAI importabile di nuovo, mai sommata al 90D
+WINDOW_ROLES = {"RECENT_7D": "SHORT_TREND", "RECENT_30D": "PRIMARY_DECISION", "RECENT_90D": "MEDIUM_CONTEXT", "RECENT_65D": "LEGACY_CONTEXT", "LIFETIME": "LONG_HISTORY"}
 REPORT_TYPES = {"TARGETING": "Targeting", "SEARCH_TERM": "Search Term"}
 MAX_BYTES = 60 * 1024 * 1024
 MAX_ROWS = 400_000

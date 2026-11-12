@@ -35,11 +35,11 @@ from . import globalreport as G
 
 STATUSES = ("UNASSIGNED", "ASSIGNED", "IGNORED")
 SLOTS = {"TARGETING_7D": ("TARGETING", "RECENT_7D"), "TARGETING_30D": ("TARGETING", "RECENT_30D"), "TARGETING_LIFETIME": ("TARGETING", "LIFETIME"),
-         "SEARCH_TERM_7D": ("SEARCH_TERM", "RECENT_7D"), "SEARCH_TERM_30D": ("SEARCH_TERM", "RECENT_30D"), "SEARCH_TERM_65D": ("SEARCH_TERM", "RECENT_65D")}
+         "SEARCH_TERM_7D": ("SEARCH_TERM", "RECENT_7D"), "SEARCH_TERM_30D": ("SEARCH_TERM", "RECENT_30D"), "SEARCH_TERM_90D": ("SEARCH_TERM", "RECENT_90D")}
 SLOT_LABELS = {"TARGETING_7D": "Targeting 7D", "TARGETING_30D": "Targeting 30D", "TARGETING_LIFETIME": "Targeting Lifetime",
-               "SEARCH_TERM_7D": "Search Term 7D", "SEARCH_TERM_30D": "Search Term 30D", "SEARCH_TERM_65D": "Search Term 65D"}
-SUPPORT_SLOTS = ("SEARCH_TERM_65D", "TARGETING_LIFETIME")           # finestre di SOSTEGNO: mai obbligatorie, non bloccano l'import se mancano
-WEEKLY_SLOTS = ("TARGETING_7D", "TARGETING_30D", "SEARCH_TERM_7D", "SEARCH_TERM_30D", "SEARCH_TERM_65D")
+               "SEARCH_TERM_7D": "Search Term 7D", "SEARCH_TERM_30D": "Search Term 30D", "SEARCH_TERM_90D": "Search Term 90D"}
+SUPPORT_SLOTS = ("SEARCH_TERM_90D", "TARGETING_LIFETIME")           # finestre di SOSTEGNO: mai obbligatorie, non bloccano l'import se mancano
+WEEKLY_SLOTS = ("TARGETING_7D", "TARGETING_30D", "SEARCH_TERM_7D", "SEARCH_TERM_30D", "SEARCH_TERM_90D")
 MONTHLY_SLOTS = ("TARGETING_LIFETIME",)
 
 # UN file puo' produrre PIU' snapshot logici (uno per marketplace/valuta): per questo l'hash del file NON e' piu' UNIQUE da solo. La chiave e' (hash del file, marketplace);
@@ -48,7 +48,7 @@ _IMPORTS_DDL = """
 CREATE TABLE IF NOT EXISTS {name} (
     gimport_id INTEGER PRIMARY KEY AUTOINCREMENT,
     report_type TEXT NOT NULL CHECK (report_type IN ('TARGETING','SEARCH_TERM')),
-    window_label TEXT NOT NULL CHECK (window_label IN ('RECENT_7D','RECENT_30D','RECENT_65D','LIFETIME')), window_days INTEGER,       -- LIFETIME: window_days NULL, date_from = date_to
+    window_label TEXT NOT NULL CHECK (window_label IN ('RECENT_7D','RECENT_30D','RECENT_90D','RECENT_65D','LIFETIME')), window_days INTEGER,       -- LIFETIME: window_days NULL, date_from = date_to
     date_from TEXT NOT NULL, date_to TEXT NOT NULL, period_id TEXT NOT NULL, marketplace TEXT NOT NULL, currency TEXT,
     file_name TEXT NOT NULL, file_sha256 TEXT NOT NULL, imported_at TEXT NOT NULL,
     row_count INTEGER, campaign_count INTEGER, empty_search_term_rows INTEGER, warnings_json TEXT, parser_version INTEGER,
@@ -61,8 +61,8 @@ CREATE TABLE IF NOT EXISTS {name} (
 
 SCHEMA = _IMPORTS_DDL.format(name="global_report_imports") + """
 -- snapshot logico = tipo report + finestra + date dello snapshot + marketplace + account: al massimo UNA versione attiva
-CREATE UNIQUE INDEX IF NOT EXISTS ux_gri_active_v8 ON global_report_imports(report_type, window_label, date_from, date_to, marketplace, COALESCE(account_id, '')) WHERE status='ACTIVE';
-CREATE UNIQUE INDEX IF NOT EXISTS ux_gri_file_mp_v8 ON global_report_imports(file_sha256, marketplace);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_gri_active_v9 ON global_report_imports(report_type, window_label, date_from, date_to, marketplace, COALESCE(account_id, '')) WHERE status='ACTIVE';
+CREATE UNIQUE INDEX IF NOT EXISTS ux_gri_file_mp_v9 ON global_report_imports(file_sha256, marketplace);
 CREATE TABLE IF NOT EXISTS global_report_rows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     gimport_id INTEGER NOT NULL REFERENCES global_report_imports(gimport_id),
@@ -134,7 +134,7 @@ def _migrate_mapping_account_scope(conn) -> None:
 def ensure_schema(conn) -> None:
     from . import db as _db                                  # import locale: db.py importa questo modulo
     _db.rebuild_global_imports_unique(conn)                  # forma v6 -> v7 (prima degli indici della forma nuova); no-op se gia' v7
-    _db.rebuild_global_imports_window_check(conn)            # forma v7 -> v8 (finestre 65D e LIFETIME); no-op se gia' v8
+    _db.rebuild_global_imports_window_check(conn)            # forma v7/v8 -> v9 (finestre 90D, 65D legacy e LIFETIME); no-op se gia' v9
     conn.executescript(SCHEMA)
     _add_columns(conn, "global_report_imports", [("account_name", "TEXT"), ("source_gimport_id", "INTEGER")])
     _add_columns(conn, "global_report_rows", [("account_id", "TEXT"), ("account_name", "TEXT"), ("currency", "TEXT"), ("marketplace", "TEXT")])

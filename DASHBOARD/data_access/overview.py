@@ -117,7 +117,7 @@ def plain_text(text) -> str:
 
 
 def window_days(window_or_period, default=None):
-    """'RECENT_65D' -> 65; '2026-09-06__2026-10-05' o '2026-08-02→2026-10-05' -> giorni inclusi."""
+    """'RECENT_90D' -> 90; '2026-09-06__2026-10-05' o '2026-08-02→2026-10-05' -> giorni inclusi."""
     s = str(window_or_period or "")
     m = re.fullmatch(r"RECENT_(\d+)D", s)
     if m:
@@ -153,7 +153,7 @@ def bid_info(d: dict) -> dict | None:
 
 def acos_summary(d: dict, book: dict) -> dict:
     """ACOS mostrati sulla card: n/d (None) se il periodo non esiste o non ha vendite."""
-    rw = window_days(d.get("recent_window"), 65)
+    rw = window_days(d.get("recent_window"), 90)
     tw = window_days(d.get("tactical_window"), 30)
     return {"target": book.get("target_acos"), "break_even": book.get("break_even_acos"), "lifetime": d.get("lifetime_acos"),
             "recent": d.get("recent_acos") if d.get("recent_clicks") is not None else None, "recent_days": rw,
@@ -199,7 +199,7 @@ def short_reason(d: dict, book: dict) -> str:
     """Motivo breve in italiano semplice, costruito dai numeri della decisione (mai codici tecnici)."""
     fa, tgt = d.get("final_action"), book.get("target_acos")
     life, rec, tac = d.get("lifetime_acos"), d.get("recent_acos"), d.get("tactical_acos")
-    rd, td = window_days(d.get("recent_window"), 65), window_days(d.get("tactical_window"), 30)
+    rd, td = window_days(d.get("recent_window"), 90), window_days(d.get("tactical_window"), 30)
     orders = d.get("lifetime_orders")
     sig = d.get("recent_vs_historical_signal")
     zero_orders = (d.get("lifetime_orders") or 0) == 0 and life is None           # 0 acquisti: ACOS n/d, mai confrontato con obiettivo o pareggio
@@ -548,8 +548,8 @@ def _profitable_small(d: dict, book: dict) -> bool:
 
 def recent_window_used(d: dict) -> dict | None:
     """Periodo recente piu' informativo UTILIZZABILE: il 30 giorni (tattico) se ha almeno RECENT_VALID_MIN_CLICKS clic e RECENT_VALID_MIN_ORDERS acquisti
-    (quindi un ACOS), altrimenti il 65 giorni; None se nessuno dei due e' un campione sufficiente (niente reazioni a campioni minuscoli)."""
-    for prefix, default_days, label in (("tactical", 30, "tactical_window"), ("recent", 65, "recent_window")):
+    (quindi un ACOS), altrimenti il 90 giorni; None se nessuno dei due e' un campione sufficiente (niente reazioni a campioni minuscoli)."""
+    for prefix, default_days, label in (("tactical", 30, "tactical_window"), ("recent", 90, "recent_window")):
         clicks, orders, acos = d.get(f"{prefix}_clicks"), d.get(f"{prefix}_orders"), d.get(f"{prefix}_acos")
         if acos is not None and (clicks or 0) >= RECENT_VALID_MIN_CLICKS and (orders or 0) >= RECENT_VALID_MIN_ORDERS:
             return {"acos": acos, "clicks": clicks, "orders": orders, "days": window_days(d.get(label), default_days)}
@@ -596,7 +596,7 @@ def good_card(d: dict, book: dict) -> dict:
     return {"id": d.get("decision_id") or d.get("pk"), "kind": "GOOD", "badge": "NON TOCCARE", "title": card_title(d), "campaign": d.get("campaign_id"),
             "target": target_name(d), "reason": short_reason({**d, "final_action": "HOLD"}, book), "lifetime_acos": d.get("lifetime_acos"),
             "recent_acos": d.get("recent_acos") if d.get("recent_clicks") is not None else d.get("tactical_acos"),
-            "recent_days": window_days(d.get("recent_window"), 65) if d.get("recent_clicks") is not None else window_days(d.get("tactical_window"), 30),
+            "recent_days": window_days(d.get("recent_window"), 90) if d.get("recent_clicks") is not None else window_days(d.get("tactical_window"), 30),
             "orders": d.get("lifetime_orders"), "profit": d.get("lifetime_estimated_profit"), "decision": d}
 
 

@@ -539,8 +539,7 @@ class UiTests(MM):
 
     def test_import_page_previews_one_group_per_marketplace_and_imports_without_a_global_choice(self):
         at = self.page("13_Report_globali_Amazon_Ads.py")
-        up = at.get("file_uploader")
-        up[1].upload("mix_t30.csv", MIX_T30(), "text/csv")
+        tg.uploader(at, "Targeting 30D").upload("mix_t30.csv", MIX_T30(), "text/csv")
         at.run()
         [b for b in at.button if b.label == "ANALIZZA FILE"][0].click().run()
         self.assertFalse(at.exception, at.exception)
@@ -558,7 +557,7 @@ class UiTests(MM):
     def test_import_page_asks_the_marketplace_only_for_the_ambiguous_group(self):
         de = eur(tma.acct_camp(ACC, NAME, "333000333000333", "FRASE DE", "333", "DE"))
         at = self.page("13_Report_globali_Amazon_Ads.py")
-        at.get("file_uploader")[1].upload("m.csv", targeting(tgt(CUS, 30, 3), tgt(de, 9, 1)), "text/csv")
+        tg.uploader(at, "Targeting 30D").upload("m.csv", targeting(tgt(CUS, 30, 3), tgt(de, 9, 1)), "text/csv")
         at.run()
         [b for b in at.button if b.label == "ANALIZZA FILE"][0].click().run()
         self.assertFalse(at.exception, at.exception)

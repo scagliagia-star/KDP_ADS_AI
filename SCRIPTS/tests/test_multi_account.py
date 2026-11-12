@@ -139,7 +139,7 @@ class SnapshotsAndRevisionsTests(MA):
     def test_unique_active_index_includes_the_account(self):
         c = self.db()
         try:
-            sql = c.execute("SELECT sql FROM sqlite_master WHERE name='ux_gri_active_v8'").fetchone()[0]
+            sql = c.execute("SELECT sql FROM sqlite_master WHERE name='ux_gri_active_v9'").fetchone()[0]
             self.assertIn("COALESCE(account_id, '')", sql)
         finally:
             c.close()
@@ -498,9 +498,8 @@ class UiTests(MA):
 
     def test_import_preview_shows_the_amazon_account(self):
         at = AppTest.from_file(str(ROOT / "DASHBOARD" / "pages" / "13_Report_globali_Amazon_Ads.py"), default_timeout=120).run()
-        up = at.get("file_uploader")
-        up[1].upload("a.csv", tg_file(CA), "text/csv")
-        up[2].upload("b.csv", st_file(CB), "text/csv")
+        tg.uploader(at, "Targeting 30D").upload("a.csv", tg_file(CA), "text/csv")
+        tg.uploader(at, "Targeting Lifetime").upload("b.csv", st_file(CB), "text/csv")
         at.run()
         [b for b in at.button if b.label == "ANALIZZA FILE"][0].click().run()
         self.assertFalse(at.exception, at.exception)
